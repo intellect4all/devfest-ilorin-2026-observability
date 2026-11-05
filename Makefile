@@ -30,7 +30,7 @@ P_ADMIN := http://127.0.0.1:7082/admin/config
 
 .PHONY: help up down reset seed check logs load load-stop load-logs surge tx \
 	bug-a-on bug-a-off bug-b-on bug-b-off bug-c-on bug-c-off bugs-off bugs explain \
-	provider-flaky provider-normal alert-test ntfy-local stage prebuild preflight \
+	provider-flaky provider-normal alert-test subscribe ntfy-local stage prebuild preflight \
 	verify offline-kit calibrate test
 
 help: ## List targets
@@ -110,6 +110,10 @@ provider-normal: ## Provider healthy again
 ##@ Alerts
 alert-test: ## Send a sample alert through the relay to ntfy
 	@scripts/alert-test.sh
+
+subscribe: ## Show the ntfy server and topic big, for the audience to subscribe
+	@printf '\n\n   Open the ntfy app  →  +  →  subscribe to:\n\n'
+	@printf '   server   %s\n\n   topic    %s\n\n\n' "$${NTFY_URL:-https://ntfy.sh}" "$${NTFY_TOPIC:?set NTFY_TOPIC in .env}" | sed 's/./& /g'
 
 ntfy-local: ## Offline Plan B: start a local ntfy server phones can reach on the hotspot
 	@$(DC) --profile offline up -d ntfy && echo "ntfy on http://$$(ipconfig getifaddr en0 2>/dev/null || hostname -I | cut -d' ' -f1):$${NTFY_LOCAL_PORT:-2586} - set NTFY_URL=http://ntfy in .env and make up"

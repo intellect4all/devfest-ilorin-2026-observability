@@ -110,6 +110,8 @@ ev_finish() {
 		printf '| Section | Result | Check | Measured | Proof |\n|---|---|---|---|---|\n'
 		awk -F'\t' '{ gsub(/\|/, "\\|", $4); printf "| %s | %s | %s | %s | %s |\n", $1, ($2=="PASS" ? "✅ PASS" : "❌ FAIL"), $3, $4, $5 }' "$RUN_DIR/results.tsv"
 	} >"$EVIDENCE_ROOT/SUMMARY.md"
+	# evidence/latest always points at the newest run (the runbook links into it).
+	ln -sfn "$RUN_ID" "$EVIDENCE_ROOT/latest"
 	info "evidence: $RUN_DIR ($pass PASS, $fail FAIL)"
 	((fail == 0))
 }
