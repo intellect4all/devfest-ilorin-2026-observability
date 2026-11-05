@@ -73,6 +73,28 @@ verify_02() {
 	EV_SHOWS="Tempo trace view of one POST /transfers: transfers → ledger GET /balance or POST /entries → SELECT/INSERT entries, and provider POST /payouts, nested in one waterfall"
 	ev_check "$(pass_if test "$services" = "ledger,provider,transfers" -a "$roots" = 1 -a "$orphans" = 0 -a $shot_ok -eq 0)" "one transfer = one trace across 3 services, no orphans"
 
+	# From a latency panel to a trace: exemplars on the p99 line.
+	bug_on c
+	settle 45 "bug C on: slow requests become exemplars"
+	ev_shot dashboard-exemplars dashboard payments now-5m
+	shot_ok=$?
+	local dash=$EV_PNG ex ex_trace ex_ok
+	ex=$(curl -sf -G "$PROM/api/v1/query_exemplars" --data-urlencode 'query=http_server_request_duration_seconds_bucket{job="transfers"}' \
+		--data-urlencode "start=$(($(date +%s) - 120))" --data-urlencode "end=$(date +%s)" |
+		jq -r '[.data[].exemplars[]] | sort_by(.value | tonumber) | last | "\(.labels.trace_id) \(.value)"')
+	ex_trace=${ex%% *}
+	ev_run exemplar-trace node_tool trace.mjs analyze "$ex_trace"
+	ex_ok=$(grep -c '"traceId"' "$EV_OUT")
+	ev_shot exemplar-opens-trace trace "$ex_trace"
+	EV_CMD="Payments dashboard with bug C on; Prometheus query_exemplars; open the slowest exemplar's trace_id in Tempo"
+	EV_EXPECT="diamonds (exemplars) on the latency panel, each carrying a trace_id that opens in Tempo"
+	EV_ACTUAL="slowest exemplar in the last 2 min: trace $ex_trace at ${ex#* } s; Tempo returned it: $( ((ex_ok > 0)) && echo yes || echo no)"
+	EV_FILES="$dash $EV_OUT $EV_PNG"
+	EV_SHOWS="1: latency panel with exemplar diamonds along the p99 line; 2: the trace an exemplar points to, opened in Tempo"
+	ev_check "$(pass_if test $shot_ok -eq 0 -a "$ex_ok" -gt 0)" "exemplars link the latency panel to traces"
+	bug_off
+	settle 30 "recovery"
+
 	local bug want got slow
 	for bug in c b a; do
 		bug_on $bug
@@ -160,6 +182,15 @@ verify_03() {
 	EV_FILES="$stdout_file $EV_PNG $loki_png"
 	EV_SHOWS="terminal: JSON WARN/ERROR lines from all three services, each with trace_id and span_id; Loki: the same lines in Explore"
 	ev_check "$st" "every service's log lines carry trace_id"
+
+	# From a log line back to its trace (the trace_id derived field).
+	ev_shot log-line-to-trace loki '{service_name="ledger"} | detected_level="warn"' "now-${mins}m" "slow query" follow
+	EV_CMD="Explore Loki {service_name=\"ledger\"} WARN lines → expand a line → View trace"
+	EV_EXPECT="the log line's trace_id link opens the trace beside it"
+	EV_ACTUAL="audit: $(jq -c '{problems, followed}' <<<"$EV_AUDIT")"
+	EV_FILES="$EV_PNG"
+	EV_SHOWS="Loki on the left with a 'slow query' line expanded (its trace_id link), the trace opened from it on the right"
+	ev_check "$(pass_if test "$(jq -r .followed <<<"$EV_AUDIT")" = "View trace" -a "$(jq '.problems | length' <<<"$EV_AUDIT")" = 0)" "log line → trace jump works"
 
 	local bug want trace found lines
 	for bug in c b a; do

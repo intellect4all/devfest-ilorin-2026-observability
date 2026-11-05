@@ -3,7 +3,7 @@
 //
 //   node shoot.mjs dashboard <uid> <out.png> [from=now-15m]
 //   node shoot.mjs trace     <traceId> <out.png> [spanName] [logs] [logLineRegex]
-//   node shoot.mjs loki      <logql> <out.png> [from=now-15m] [expandText]
+//   node shoot.mjs loki      <logql> <out.png> [from=now-15m] [expandLineRegex] [follow]
 //   node shoot.mjs page      <url> <out.png> [waitText]
 //   node shoot.mjs text      <file.txt> <out.png> [title]   (terminal output as a PNG)
 //
@@ -142,7 +142,8 @@ try {
     await audit();
     await page.screenshot({ path: out });
   } else if (cmd === "loki") {
-    const [query, out, from = "now-15m", expandText] = args;
+    if (args[4]) await page.setViewportSize({ width: 1800, height: 1100 });
+    const [query, out, from = "now-15m", expandText, follow] = args;
     await page.goto(
       explore({
         a: {
@@ -155,8 +156,16 @@ try {
     );
     await settle(2500);
     if (expandText) {
-      await clickText(expandText);
+      await page.getByText(new RegExp(expandText)).last().click();
       await settle(1000);
+      result.expanded = expandText;
+    }
+    if (follow) {
+      // The trace_id derived field: from a log line back to its trace.
+      await page.getByRole("button", { name: /View trace/i }).first().click();
+      await page.getByText(/^Trace ID/).first().waitFor({ timeout: 30000 });
+      await settle(2500);
+      result.followed = "View trace";
     }
     await audit();
     await page.screenshot({ path: out });
