@@ -5,6 +5,7 @@
 //   node shoot.mjs trace     <traceId> <out.png> [spanName] [logs]
 //   node shoot.mjs loki      <logql> <out.png> [from=now-15m] [expandText]
 //   node shoot.mjs page      <url> <out.png> [waitText]
+//   node shoot.mjs text      <file.txt> <out.png> [title]   (terminal output as a PNG)
 //
 // Prints one JSON line describing what was captured. A screenshot whose page
 // shows "No data", an error, a login page or a spinner is flagged with
@@ -105,6 +106,19 @@ try {
     }
     await audit();
     await page.screenshot({ path: out });
+  } else if (cmd === "text") {
+    const [file, out, title = file] = args;
+    const { readFileSync } = await import("node:fs");
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    // Strip ANSI colour codes, but keep ticks and crosses readable.
+    const body = esc(readFileSync(file, "utf8").replace(/\x1b\[[0-9;]*m/g, ""))
+      .replace(/✓/g, '<b style="color:#3fb950">✓</b>')
+      .replace(/✗/g, '<b style="color:#f85149">✗</b>');
+    await page.setViewportSize({ width: 1400, height: 400 });
+    await page.setContent(`<html><body style="margin:0;background:#0d1117;color:#e6edf3;font:18px/1.45 'DejaVu Sans Mono',monospace">
+      <div style="background:#161b22;color:#8b949e;padding:10px 20px;font-size:15px">$ ${esc(title)}</div>
+      <pre style="margin:0;padding:16px 20px;white-space:pre-wrap">${body}</pre></body></html>`);
+    await page.screenshot({ path: out, fullPage: true });
   } else if (cmd === "page") {
     const [url, out, waitText] = args;
     await page.goto(url, { waitUntil: "domcontentloaded" });

@@ -1,7 +1,7 @@
 # Shared helpers for the workshop scripts. Source it: . scripts/lib.sh
 # shellcheck shell=bash
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT" || exit 1
 
 # .env holds the ntfy topic and any port overrides; it is never committed.
