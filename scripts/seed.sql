@@ -15,8 +15,10 @@
 
 TRUNCATE entries, transfers;
 
--- Bulk-load without the index, then build it once: much faster.
-DROP INDEX IF EXISTS idx_entries_account_id;
+-- Bulk-load without any account index, then build the standard one once:
+-- much faster. (The solution branch's ledger adds its own at start-up.)
+SELECT format('DROP INDEX IF EXISTS %I', indexname) FROM pg_indexes
+WHERE tablename = 'entries' AND indexdef LIKE '%(account_id%' \gexec
 
 INSERT INTO entries (account_id, transfer_id, amount, memo)
 SELECT 'acct-' || lpad((1 + (g % 50000))::text, 5, '0'),

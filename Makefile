@@ -48,7 +48,7 @@ reset: ## Stop the stack and delete its data (this project's volumes only)
 
 seed: ## Load ROWS ledger entries and HISTORY recent transfers (defaults 5,500,000 / 80,000)
 	@$(DC) exec -T postgres psql -q -U devfest -d devfest -v rows=$(ROWS) -v history=$(HISTORY) -f /scripts/seed.sql
-	@$(DC) restart transfers >/dev/null && source scripts/lib.sh && wait_apps 90 && ok "seeded; transfers reloaded its history"
+	@$(DC) restart transfers ledger >/dev/null && source scripts/lib.sh && wait_apps 120 && ok "seeded; services restarted"
 
 check: ## One tick or cross per component
 	@scripts/check.sh

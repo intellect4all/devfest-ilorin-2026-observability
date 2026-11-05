@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"devfest/internal/httpx"
@@ -136,8 +137,8 @@ func (s *server) postEntries(w http.ResponseWriter, r *http.Request) {
 // adminMux serves the presenter's bug toggle:
 //
 //	GET  /admin/bugs       current state
-//	POST /admin/bugs?b=on  bug B: drop the index the balance query needs
-//	POST /admin/bugs?b=off put it back
+//	POST /admin/bugs?b=on  bug B: drop every index on entries(account_id ...)
+//	POST /admin/bugs?b=off put idx_entries_account_id back
 //
 // Bug B lives in the database, so it survives service restarts.
 func (s *server) adminMux() http.Handler {
@@ -145,12 +146,14 @@ func (s *server) adminMux() http.Handler {
 	mux.HandleFunc("GET /admin/bugs", s.bugState)
 	mux.HandleFunc("POST /admin/bugs", func(w http.ResponseWriter, r *http.Request) {
 		if on, ok := httpx.Toggle(r, "b"); ok {
-			// CONCURRENTLY, so live traffic keeps writing while it runs.
-			stmt := `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entries_account_id ON entries (account_id)`
+			var err error
 			if on {
-				stmt = `DROP INDEX CONCURRENTLY IF EXISTS idx_entries_account_id`
+				err = s.dropAccountIndexes(r.Context())
+			} else {
+				// CONCURRENTLY, so live traffic keeps writing while it builds.
+				_, err = s.db.Exec(r.Context(), `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entries_account_id ON entries (account_id)`)
 			}
-			if _, err := s.db.Exec(r.Context(), stmt); err != nil {
+			if err != nil {
 				httpx.Error(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -161,10 +164,30 @@ func (s *server) adminMux() http.Handler {
 	return mux
 }
 
+// accountIndexes lists the indexes that can serve WHERE account_id = $1.
+const accountIndexes = `SELECT indexname FROM pg_indexes
+	WHERE tablename = 'entries' AND indexdef LIKE '%(account_id%'`
+
+func (s *server) dropAccountIndexes(ctx context.Context) error {
+	rows, err := s.db.Query(ctx, accountIndexes)
+	if err != nil {
+		return err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if _, err := s.db.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS `+pgx.Identifier{name}.Sanitize()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *server) bugState(w http.ResponseWriter, r *http.Request) {
 	var indexed bool
-	err := s.db.QueryRow(r.Context(),
-		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_entries_account_id')`).Scan(&indexed)
+	err := s.db.QueryRow(r.Context(), `SELECT EXISTS (`+accountIndexes+`)`).Scan(&indexed)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, err.Error())
 		return
