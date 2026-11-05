@@ -56,8 +56,10 @@ summarise() {
 	echo "${p50:-0} ${p99:-0}"
 }
 
+PHASES=${PHASES:-"healthy A A_surge B C"}
 phase() { # phase <name> <fault command> [surge]
 	local name=$1 fault=$2 surge=${3:-}
+	[[ " $PHASES " == *" $name "* ]] || return 0
 	bugs_off
 	eval "$fault"
 	local log
@@ -94,18 +96,23 @@ phase C "curl -sf -X POST '$T_ADMIN?c=on' >/dev/null"
 
 echo
 echo "targets: healthy p99 < 200 ms | A steady p99 < 300 ms but A_surge > 1000 ms | B p99 600-1000 ms | C p99 > 1000 ms"
+# Queueing makes bug B very non-linear near saturation, so suggest small steps.
 b=${P99_B%.*}
-if ((b < 600)); then
-	echo "  bug B too mild: re-seed with more rows, e.g. make seed ROWS=$((rows * 600 / (b > 0 ? b : 1) / 100000 * 100000))"
+if [[ -z $b ]]; then
+	:
+elif ((b < 600)); then
+	echo "  bug B too mild: re-seed with about 15% more rows: make seed ROWS=$((rows * 115 / 100 / 100000 * 100000))"
 elif ((b > 1000)); then
-	echo "  bug B too strong: re-seed with fewer rows, e.g. make seed ROWS=$((rows * 800 / b / 100000 * 100000))"
+	echo "  bug B too strong: re-seed with about 10% fewer rows: make seed ROWS=$((rows * 90 / 100 / 100000 * 100000))"
 else
 	echo "  bug B is in range"
 fi
 a=${P99_A_surge%.*}
-if ((a < 1000)); then
+if [[ -z $a ]]; then
+	:
+elif ((a < 1000)); then
 	echo "  bug A too mild under surge: re-seed with more history, e.g. make seed HISTORY=$((history * 3 / 2))"
-elif ((${P99_A%.*} > 300)); then
+elif ((${P99_A%.*:-0} > 300)); then
 	echo "  bug A already hurts at steady load: re-seed with less history, e.g. make seed HISTORY=$((history * 2 / 3))"
 else
 	echo "  bug A is in range"
