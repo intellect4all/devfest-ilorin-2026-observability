@@ -16,13 +16,6 @@ const recentWindow = 24 * time.Hour
 //
 // Keys are compared case-insensitively: mobile SDKs send upper-case UUIDs,
 // some retries arrive lower-cased by a proxy.
-//
-// BUG A lives here. Claim can find a key two ways: through the byKey map
-// (O(1)), or by walking the whole list and normalising every stored key on
-// the way (O(n), one allocation per record). The walk is cheap with a few
-// hundred transfers, which is why it passed review and every test. It holds
-// the mutex for the whole walk, though, so under real traffic every request
-// queues behind every other request's walk.
 type recentTransfers struct {
 	mu    sync.Mutex
 	list  []*transfer          // oldest first
@@ -30,7 +23,7 @@ type recentTransfers struct {
 
 	statusMu sync.Mutex // guards Status and ProviderRef of remembered transfers
 
-	linearScan atomic.Bool // bug A toggle
+	linearScan atomic.Bool
 }
 
 func newRecentTransfers() *recentTransfers {

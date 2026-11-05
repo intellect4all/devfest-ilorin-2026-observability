@@ -11,19 +11,13 @@ var errVelocityLimit = errors.New("daily payout limit reached")
 
 // accountLocks enforces a per-account daily payout limit. Checking and
 // updating the running total must not race, so each account has a mutex.
-//
-// BUG C lives here. The lock only needs to cover the few microseconds of
-// limit bookkeeping. With holdAcrossPayout on, Reserve keeps the account
-// locked until the whole transfer is finished, including the network calls
-// to the ledger and the payout provider. Every other transfer from the same
-// account then waits in line.
 type accountLocks struct {
 	limit int64 // kobo per account per day
 
 	mu       sync.Mutex
 	accounts map[string]*accountLock
 
-	holdAcrossPayout atomic.Bool // bug C toggle
+	holdAcrossPayout atomic.Bool
 }
 
 type accountLock struct {
@@ -57,7 +51,7 @@ type reservation struct {
 	lock   *accountLock
 	holder *lockHolder
 	amount int64
-	held   bool // the account lock is still held (bug C)
+	held   bool // the account lock is still held
 }
 
 func newAccountLocks(limit int64) *accountLocks {
@@ -104,7 +98,7 @@ func (l *accountLocks) Reserve(account, transferID string, amount int64) (*reser
 
 	res := &reservation{lock: a, holder: h, amount: amount, held: true}
 	if !l.holdAcrossPayout.Load() {
-		res.unlock() // correct: the critical section ends here
+		res.unlock()
 	}
 	return res, w, nil
 }

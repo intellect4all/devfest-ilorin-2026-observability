@@ -87,10 +87,8 @@ func main() {
 	httpx.Serve(":"+httpx.Env("PORT", "8080"), api, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
 }
 
-// adminMux serves the presenter's bug toggles:
-//
-//	GET  /admin/bugs            current state
-//	POST /admin/bugs?a=on&c=off bug A: O(n) duplicate check; bug C: lock held across payout
+// adminMux serves the presenter's fault toggles (localhost only, never in
+// any metric, trace or log).
 func (a *app) adminMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/bugs", a.bugState)

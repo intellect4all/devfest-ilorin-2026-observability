@@ -30,8 +30,8 @@ P_ADMIN := http://127.0.0.1:7082/admin/config
 
 .PHONY: help up down reset seed check logs load load-stop load-logs surge tx \
 	bug-a-on bug-a-off bug-b-on bug-b-off bug-c-on bug-c-off bugs-off bugs explain \
-	provider-flaky provider-normal alert-test subscribe ntfy-local stage prebuild preflight \
-	verify offline-kit calibrate test
+	provider-flaky provider-normal alert-test ntfy-local stage prebuild preflight \
+	verify offline-kit calibrate test mystery hint reveal
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z0-9-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -106,6 +106,14 @@ provider-flaky: ## Provider rejects 20% of payouts (5xx alert demo)
 	@curl -sf -X POST '$(P_ADMIN)?error_rate=0.2'
 provider-normal: ## Provider healthy again
 	@curl -sf -X POST '$(P_ADMIN)?error_rate=0&timeout_rate=0'
+
+##@ Audience hunt (this branch)
+mystery: ## Turn on one random bug and keep it secret (BUG=a|b|c to choose)
+	@scripts/hunt.sh mystery $(BUG)
+hint: ## Next hint from the ladder
+	@scripts/hunt.sh hint
+reveal: ## Say which bug it was and turn it off
+	@scripts/hunt.sh reveal
 
 ##@ Alerts
 alert-test: ## Send a sample alert through the relay to ntfy

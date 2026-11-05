@@ -162,13 +162,8 @@ func (s *server) postEntries(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"transfer_id": req.TransferID})
 }
 
-// adminMux serves the presenter's bug toggle:
-//
-//	GET  /admin/bugs       current state
-//	POST /admin/bugs?b=on  bug B: drop every index on entries(account_id ...)
-//	POST /admin/bugs?b=off put idx_entries_account_id back
-//
-// Bug B lives in the database, so it survives service restarts.
+// adminMux serves the presenter's fault toggle (localhost only, never in
+// any metric, trace or log).
 func (s *server) adminMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/bugs", s.bugState)
