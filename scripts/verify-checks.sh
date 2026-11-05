@@ -19,7 +19,7 @@ expected_log() {
 	esac
 }
 
-SLOW_TRANSFERS='{resource.service.name="transfers" && kind=server && span.http.route="/transfers"}'
+SLOW_TRANSFERS='{resource.service.name="transfers" && name="POST /transfers"}'
 
 # slowest_trace [seconds]: trace ID of the slowest recent transfer.
 slowest_trace() {
