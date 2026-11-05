@@ -52,6 +52,8 @@ for b in "${order[@]}"; do
 	# by regenerating it right after; elsewhere the branch's own change wins.
 	git rebase -q -X theirs --onto "$p" "$(get_old "$p")" "$b"
 	regen_dashboard "$b"
+	# -X theirs can merge cleanly into code that does not compile: check.
+	go build ./... && go vet ./... || { echo "$b does not build after the rebase: fix it, then rerun from $b"; exit 1; }
 	echo "rebased $b onto $p"
 done
 git checkout -q "$back"
