@@ -19,6 +19,19 @@ parent_of() {
 }
 order=(01-metrics 02-traces 03-logs 04-alerts hunt solution)
 
+# regen_dashboard <branch>: rebuild payments.json from tools/dashboard.py
+# with the branch's flags and fold any change into the branch's last commit.
+regen_dashboard() {
+	local flags
+	case $1 in
+	01-metrics) flags="" ;; 02-traces | 03-logs) flags="--traces" ;; *) flags="--traces --alerts" ;;
+	esac
+	[[ -f grafana/dashboards/payments.json ]] || return 0
+	# shellcheck disable=SC2086
+	python3 tools/dashboard.py $flags >grafana/dashboards/payments.json
+	git diff --quiet || git commit -q -a --amend --no-edit
+}
+
 declare_old() { eval "OLD_${1//-/_}=$2"; }
 get_old() { eval "echo \${OLD_${1//-/_}:-}"; }
 for b in main "${order[@]}"; do
@@ -35,7 +48,10 @@ for b in "${order[@]}"; do
 		[[ $b == "$changed" ]] && started=true
 		continue
 	fi
-	git rebase -q --onto "$p" "$(get_old "$p")" "$b"
+	# -X theirs: payments.json is generated, so a conflict there is settled
+	# by regenerating it right after; elsewhere the branch's own change wins.
+	git rebase -q -X theirs --onto "$p" "$(get_old "$p")" "$b"
+	regen_dashboard "$b"
 	echo "rebased $b onto $p"
 done
 git checkout -q "$back"
