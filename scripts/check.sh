@@ -24,7 +24,7 @@ check "tempo       :$TEMPO_PORT" http_ok "http://127.0.0.1:$TEMPO_PORT/ready"
 check "loki        :$LOKI_PORT" http_ok "http://127.0.0.1:$LOKI_PORT/ready"
 check "otel collector" dc exec -T lgtm curl -sf -o /dev/null http://127.0.0.1:13133/ready
 # Branches that provision alert rules must have them loaded in Grafana.
-want_rules=$(cat grafana/provisioning/alerting/*.yaml 2>/dev/null | grep -c '^      - uid:')
+want_rules=$(cat grafana/provisioning/alerting/*.yaml 2>/dev/null | grep -c '^        condition:')
 if ((want_rules > 0)); then
 	rules_loaded() { [[ $(curl -sf -u admin:admin "$GRAFANA/api/v1/provisioning/alert-rules" | grep -o '"uid"' | wc -l) -ge $want_rules ]]; }
 	check "alert rules loaded ($want_rules)" rules_loaded
