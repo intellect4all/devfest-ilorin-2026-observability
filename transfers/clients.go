@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // statusError is a non-2xx answer from another service.
@@ -94,6 +98,29 @@ func (p *providerClient) Payout(ctx context.Context, transferID, account string,
 		Ref string `json:"provider_ref"`
 	}
 	in := map[string]any{"transfer_id": transferID, "account": account, "amount": amount}
+
+	start := time.Now()
 	err := doJSON(ctx, p.http, http.MethodPost, p.base+"/payouts", in, &out)
+	payoutDuration.Record(ctx, time.Since(start).Seconds(),
+		metric.WithAttributes(attribute.String("outcome", payoutOutcome(err))))
 	return out.Ref, err
+}
+
+func payoutOutcome(err error) string {
+	var se *statusError
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.DeadlineExceeded) || isTimeout(err):
+		return "timeout"
+	case errors.As(err, &se):
+		return "rejected"
+	default:
+		return "error"
+	}
+}
+
+func isTimeout(err error) bool {
+	var t interface{ Timeout() bool }
+	return errors.As(err, &t) && t.Timeout()
 }

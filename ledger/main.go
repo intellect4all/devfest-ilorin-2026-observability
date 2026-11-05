@@ -12,7 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"devfest/internal/httpx"
+	"devfest/internal/telemetry"
 )
 
 const (
@@ -38,11 +41,20 @@ type server struct{ db *pgxpool.Pool }
 func main() {
 	ctx := context.Background()
 
+	shutdown, err := telemetry.Setup(ctx, "ledger")
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	db, err := pgxpool.New(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
 	if err != nil {
 		log.Fatalf("database pool: %v", err)
 	}
 	defer db.Close()
+	if err := telemetry.DBPool(db, "ledger"); err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
 	if err := migrate(ctx, db); err != nil {
 		log.Fatalf("migration: %v", err)
 	}
@@ -53,7 +65,8 @@ func main() {
 	mux.HandleFunc("POST /entries", s.postEntries)
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	httpx.Serve(":"+httpx.Env("PORT", "8081"), mux, ":"+httpx.Env("ADMIN_PORT", "7081"), s.adminMux())
+	api := otelhttp.NewHandler(mux, "ledger", otelhttp.WithFilter(telemetry.SkipHealthz))
+	httpx.Serve(":"+httpx.Env("PORT", "8081"), api, ":"+httpx.Env("ADMIN_PORT", "7081"), s.adminMux())
 }
 
 func migrate(ctx context.Context, db *pgxpool.Pool) error {

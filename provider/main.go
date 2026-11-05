@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,7 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"devfest/internal/httpx"
+	"devfest/internal/telemetry"
 )
 
 type settings struct {
@@ -29,6 +33,12 @@ type provider struct {
 }
 
 func main() {
+	shutdown, err := telemetry.Setup(context.Background(), "provider")
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	p := &provider{cfg: settings{
 		Latency:     time.Duration(envInt("PROVIDER_LATENCY_MS", 35)) * time.Millisecond,
 		ErrorRate:   envFloat("PROVIDER_ERROR_RATE", 0),
@@ -39,7 +49,8 @@ func main() {
 	mux.HandleFunc("POST /payouts", p.payout)
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	httpx.Serve(":"+httpx.Env("PORT", "8082"), mux, ":"+httpx.Env("ADMIN_PORT", "7082"), p.adminMux())
+	api := otelhttp.NewHandler(mux, "provider", otelhttp.WithFilter(telemetry.SkipHealthz))
+	httpx.Serve(":"+httpx.Env("PORT", "8082"), api, ":"+httpx.Env("ADMIN_PORT", "7082"), p.adminMux())
 }
 
 func (p *provider) current() settings {

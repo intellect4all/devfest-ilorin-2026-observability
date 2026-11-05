@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"devfest/internal/httpx"
+	"devfest/internal/telemetry"
 )
 
 type app struct {
@@ -31,11 +33,20 @@ type app struct {
 func main() {
 	ctx := context.Background()
 
+	shutdown, err := telemetry.Setup(ctx, "transfers")
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	db, err := pgxpool.New(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
 	if err != nil {
 		log.Fatalf("database pool: %v", err)
 	}
 	defer db.Close()
+	if err := telemetry.DBPool(db, "transfers"); err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
 
 	limit, _ := strconv.ParseInt(httpx.Env("DAILY_LIMIT_KOBO", "100000000000000"), 10, 64)
 	a := &app{
@@ -70,7 +81,10 @@ func main() {
 	mux.HandleFunc("POST /transfers", a.createTransfer)
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	httpx.Serve(":"+httpx.Env("PORT", "8080"), mux, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
+	// otelhttp records http.server.request.duration for every request:
+	// rate, errors (by status code) and duration in one histogram.
+	api := otelhttp.NewHandler(mux, "transfers", otelhttp.WithFilter(telemetry.SkipHealthz))
+	httpx.Serve(":"+httpx.Env("PORT", "8080"), api, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
 }
 
 // adminMux serves the presenter's bug toggles:

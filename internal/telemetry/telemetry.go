@@ -1,0 +1,80 @@
+// Package telemetry wires OpenTelemetry into a service. Every signal goes
+// over OTLP/HTTP to the Collector at OTEL_EXPORTER_OTLP_ENDPOINT.
+package telemetry
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"syscall"
+	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+)
+
+// Setup starts telemetry for service and returns a function that flushes
+// and stops it.
+func Setup(ctx context.Context, service string) (func(context.Context) error, error) {
+	res, err := resource.New(ctx,
+		resource.WithAttributes(semconv.ServiceName(service)),
+		resource.WithFromEnv(), // OTEL_RESOURCE_ATTRIBUTES
+		resource.WithTelemetrySDK(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Metrics: pushed every 5 s.
+	metricExp, err := otlpmetrichttp.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp, sdkmetric.WithInterval(5*time.Second))),
+	)
+	otel.SetMeterProvider(mp)
+
+	// USE for the process itself: goroutines, memory, GC (runtime package)
+	// and CPU time (below; the runtime package has none).
+	if err := runtime.Start(); err != nil {
+		return nil, err
+	}
+	if err := processCPU(); err != nil {
+		return nil, err
+	}
+
+	return func(ctx context.Context) error {
+		return errors.Join(mp.Shutdown(ctx))
+	}, nil
+}
+
+// processCPU reports process.cpu.time from getrusage(2).
+func processCPU() error {
+	m := otel.Meter("devfest/telemetry")
+	_, err := m.Float64ObservableCounter("process.cpu.time",
+		metric.WithUnit("s"),
+		metric.WithDescription("CPU time used by this process."),
+		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+			var ru syscall.Rusage
+			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+				return err
+			}
+			o.Observe(tv(ru.Utime), metric.WithAttributes(attribute.String("cpu.mode", "user")))
+			o.Observe(tv(ru.Stime), metric.WithAttributes(attribute.String("cpu.mode", "system")))
+			return nil
+		}))
+	return err
+}
+
+func tv(t syscall.Timeval) float64 { return float64(t.Sec) + float64(t.Usec)/1e6 }
+
+// SkipHealthz keeps liveness probes out of the RED metrics.
+func SkipHealthz(r *http.Request) bool { return r.URL.Path != "/healthz" }

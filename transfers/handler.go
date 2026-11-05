@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
 	"devfest/internal/httpx"
 )
 
@@ -67,7 +70,7 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if prev != nil {
-		a.replay(w, prev)
+		a.replay(ctx, w, prev)
 		return
 	}
 
@@ -79,6 +82,7 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if errors.Is(err, errVelocityLimit) {
+		countTransfer(ctx, "limited")
 		a.recent.Forget(t)
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -101,6 +105,7 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "saving transfer failed")
 		return
 	}
+	countTransfer(ctx, t.Status)
 	log.Printf("transfer %s %s -> %s %d: %s", t.ID, t.From, t.To, t.Amount, t.Status)
 	httpx.WriteJSON(w, out.code, t)
 }
@@ -165,13 +170,18 @@ func (a *app) move(ctx context.Context, t *transfer, res *reservation) (outcome,
 }
 
 // replay answers a retried request with the transfer it already made.
-func (a *app) replay(w http.ResponseWriter, prev *transfer) {
+func (a *app) replay(ctx context.Context, w http.ResponseWriter, prev *transfer) {
+	countTransfer(ctx, "replayed")
 	if prev.Status == statusProcessing {
 		httpx.Error(w, http.StatusConflict, "a transfer with this Idempotency-Key is still in progress")
 		return
 	}
 	log.Printf("idempotent replay of transfer %s", prev.ID)
 	httpx.WriteJSON(w, http.StatusOK, prev)
+}
+
+func countTransfer(ctx context.Context, status string) {
+	transfersProcessed.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
 
 // step runs one business step of a transfer.
