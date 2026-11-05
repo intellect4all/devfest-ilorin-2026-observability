@@ -1,87 +1,136 @@
+# DevFest Ilorin 2026: Observability for Distributed Systems.
+# `make help` lists everything. Settings come from .env (cp .env.example .env).
 SHELL := /bin/bash
-ROWS ?= 3000000
-ID ?=
+.DEFAULT_GOAL := help
 
-# The transfers service runs on your machine (make dev) so you can edit it live.
-DEV_ENV = PORT=8080 \
-	DATABASE_URL=postgres://devfest:devfest@localhost:5432/devfest \
-	LEDGER_URL=http://localhost:8081 \
-	PROVIDER_URL=http://localhost:8082 \
-	OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+-include .env
+export
 
-IMAGES = postgres:16-alpine jaegertracing/all-in-one:1.62.0 prom/prometheus:v2.54.1 \
-	grafana/grafana:11.2.0 golang:1.23-alpine gcr.io/distroless/static-debian12
+# The image tag is the git branch, so each branch runs its own prebuilt image.
+STAGE ?= $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
+export STAGE
+export COMPOSE_PROJECT_NAME := devfest26
 
-.PHONY: help tidy pull up down reset dev check seed load tx bug-on bug-off explain logs \
-	provider-flaky provider-normal branches vendor offline
+ROWS ?= 1200000
+HISTORY ?= 80000
+LOAD_RATE ?= 20
+LOAD_HOT ?= 0.7
+SURGE_RATE ?= 80
+SURGE_SECONDS ?= 90
+TRANSFERS_PORT ?= 8080
+KEY ?= $(shell uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+FROM ?= acct-00002
+TO ?= acct-00003
+AMOUNT ?= 2500
+
+DC := docker compose
+T_ADMIN := http://127.0.0.1:7080/admin/bugs
+L_ADMIN := http://127.0.0.1:7081/admin/bugs
+P_ADMIN := http://127.0.0.1:7082/admin/config
+
+.PHONY: help up down reset seed check logs load load-stop load-logs surge tx \
+	bug-a-on bug-a-off bug-b-on bug-b-off bug-c-on bug-c-off bugs-off bugs explain \
+	provider-flaky provider-normal alert-test ntfy-local stage prebuild preflight \
+	verify offline-kit calibrate test
 
 help: ## List targets
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z0-9-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-tidy: ## Resolve Go modules (run once after cloning)
-	@go mod tidy
-
-pull: tidy ## Pull and build every image (do this on good internet)
-	@docker compose pull --ignore-buildable && docker compose build
-
-up: ## Start Postgres, ledger, mockprovider, Jaeger, Prometheus, Grafana
-	@docker compose up -d --build
+##@ Setup
+up: ## Start the stack for this branch
+	@scripts/up.sh
 
 down: ## Stop the stack (keeps data)
-	@docker compose down
+	@$(DC) --profile load --profile offline down
 
-reset: ## Stop the stack and delete all data
-	@docker compose down -v; rm -f .transfers.log
+reset: ## Stop the stack and delete its data (this project's volumes only)
+	@$(DC) --profile load --profile offline down -v --remove-orphans
 
-dev: ## Run the transfers service locally (the one you edit)
-	@$(DEV_ENV) go run ./transfers 2>&1 | tee -a .transfers.log
+seed: ## Load ROWS ledger entries and HISTORY recent transfers (defaults 1,200,000 / 80,000)
+	@$(DC) exec -T postgres psql -q -U devfest -d devfest -v rows=$(ROWS) -v history=$(HISTORY) -f /scripts/seed.sql
+	@$(DC) restart transfers >/dev/null && source scripts/lib.sh && wait_apps 90 && ok "seeded; transfers reloaded its history"
 
-check: ## Verify your setup
-	@go version >/dev/null 2>&1 && echo "✓ go toolchain" || echo "✗ go toolchain (install Go 1.23+)"
-	@go build -o /dev/null ./transfers 2>/dev/null && echo "✓ transfers compiles" || echo "✗ transfers does not compile (run make tidy)"
-	@docker compose exec -T postgres pg_isready -q -U devfest 2>/dev/null && echo "✓ postgres" || echo "✗ postgres (run make up)"
-	@curl -sf localhost:8081/healthz >/dev/null && echo "✓ ledger" || echo "✗ ledger"
-	@curl -sf localhost:8082/healthz >/dev/null && echo "✓ mockprovider" || echo "✗ mockprovider"
-	@curl -sf localhost:16686 >/dev/null && echo "✓ jaeger      http://localhost:16686" || echo "✗ jaeger"
-	@curl -sf localhost:9090/-/ready >/dev/null && echo "✓ prometheus  http://localhost:9090" || echo "✗ prometheus"
-	@curl -sf localhost:3000/api/health >/dev/null && echo "✓ grafana     http://localhost:3000" || echo "✗ grafana"
+check: ## One tick or cross per component
+	@scripts/check.sh
 
-seed: ## Load ROWS ledger entries (default 3,000,000; takes about a minute)
-	@docker compose exec -T postgres psql -q -U devfest -d devfest -v rows=$(ROWS) -f /scripts/seed.sql
+logs: ## Follow the services' logs
+	@$(DC) logs -f --tail=20
 
-load: ## Steady traffic against transfers until Ctrl-C
-	@go run ./loadgen
+test: ## go build, vet and test inside the pinned Go image
+	@scripts/gotest.sh
 
-tx: ## Send one transfer
-	@curl -s -X POST localhost:8080/transfers -H 'Content-Type: application/json' \
-		-H "Idempotency-Key: tx-$$RANDOM$$RANDOM" -d '{"from":"acct-00001","to":"acct-00002","amount":2500}'; echo
+##@ Traffic
+load: ## Start steady traffic in the background (LOAD_RATE req/s, LOAD_HOT share from acct-00001)
+	@$(DC) --profile load up -d --no-build loadgen && echo "loadgen: $(LOAD_RATE) req/s. make load-logs to watch, make load-stop to stop"
 
-bug-on: ## (presenter) break production
-	@curl -sf -X POST 'localhost:8081/admin/fault?slow_balance=on' >/dev/null && echo "fault on"
+load-stop: ## Stop steady traffic
+	@$(DC) --profile load stop loadgen >/dev/null && $(DC) --profile load rm -f loadgen >/dev/null; echo "loadgen stopped"
 
-bug-off: ## (presenter) fix production
-	@curl -sf -X POST 'localhost:8081/admin/fault?slow_balance=off' >/dev/null && echo "fault off"
+load-logs: ## Watch the loadgen's client-side numbers
+	@$(DC) --profile load logs -f --tail=5 loadgen
 
-explain: ## Show the query plan for the balance lookup
-	@docker compose exec -T postgres psql -U devfest -d devfest -c \
-		"EXPLAIN ANALYZE SELECT COALESCE(SUM(amount), 0)::bigint FROM entries WHERE account_id = 'acct-00042';"
+surge: ## Add SURGE_RATE req/s on top for SURGE_SECONDS, then stop
+	@$(DC) --profile load run --rm --no-deps loadgen /app/loadgen -url=http://transfers:8080/transfers \
+		-rate=$(SURGE_RATE) -duration=$(SURGE_SECONDS)s -hot=0 -label=surge
 
-logs: ## Every log line for one trace: make logs ID=<trace_id>
-	@test -n "$(ID)" || { echo "usage: make logs ID=<trace_id>"; exit 1; }
-	@{ docker compose logs --no-log-prefix ledger mockprovider; cat .transfers.log 2>/dev/null; } | grep "$(ID)"
+tx: ## Send one transfer (KEY=... to replay the same Idempotency-Key)
+	@echo "Idempotency-Key: $(KEY)"
+	@curl -s -w '  HTTP %{http_code} in %{time_total}s\n' -X POST http://127.0.0.1:$(TRANSFERS_PORT)/transfers \
+		-H 'Content-Type: application/json' -H 'Idempotency-Key: $(KEY)' \
+		-d '{"from":"$(FROM)","to":"$(TO)","amount":$(AMOUNT)}'
 
-provider-flaky: ## Take-home: 30% of payouts hang past the client timeout
-	@curl -sf -X POST 'localhost:8082/admin/config?timeout_rate=0.3'; echo
+##@ Faults (presenter only; never visible in telemetry)
+bug-a-on: ## Bug A: O(n) duplicate check
+	@curl -sf -X POST '$(T_ADMIN)?a=on'
+bug-a-off:
+	@curl -sf -X POST '$(T_ADMIN)?a=off'
+bug-b-on: ## Bug B: drop the balance-query index
+	@curl -sf -X POST '$(L_ADMIN)?b=on'
+bug-b-off:
+	@curl -sf -X POST '$(L_ADMIN)?b=off'
+bug-c-on: ## Bug C: hold the account lock across the payout call
+	@curl -sf -X POST '$(T_ADMIN)?c=on'
+bug-c-off:
+	@curl -sf -X POST '$(T_ADMIN)?c=off'
+bugs-off: ## Turn every bug off and make the provider healthy again
+	@curl -sf -X POST '$(T_ADMIN)?a=off&c=off' >/dev/null && curl -sf -X POST '$(L_ADMIN)?b=off' >/dev/null && \
+		curl -sf -X POST '$(P_ADMIN)?error_rate=0&timeout_rate=0' >/dev/null && echo "all bugs off, provider normal"
+bugs: ## Show which bugs are on
+	@echo "transfers: $$(curl -sf $(T_ADMIN))  ledger: $$(curl -sf $(L_ADMIN))  provider: $$(curl -sf $(P_ADMIN))"
 
-provider-normal: ## Take-home: provider behaves again
-	@curl -sf -X POST 'localhost:8082/admin/config?timeout_rate=0&error_rate=0'; echo
+explain: ## Show the balance query's plan (Index Scan = healthy, Seq Scan = bug B)
+	@$(DC) exec -T postgres psql -U devfest -d devfest -c \
+		"EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) SELECT COALESCE(SUM(amount), 0)::bigint FROM entries WHERE account_id = 'acct-00042';"
 
-branches: ## (presenter) build main / checkpoint-1 / solution from this tree
-	@bash scripts/make-branches.sh
+provider-flaky: ## Provider rejects 20% of payouts (5xx alert demo)
+	@curl -sf -X POST '$(P_ADMIN)?error_rate=0.2'
+provider-normal: ## Provider healthy again
+	@curl -sf -X POST '$(P_ADMIN)?error_rate=0&timeout_rate=0'
 
-vendor: ## Vendor Go modules for the offline USB kit
-	@go mod vendor
+##@ Alerts
+alert-test: ## Send a sample alert through the relay to ntfy
+	@scripts/alert-test.sh
 
-offline: vendor ## Save every image to devfest-images.tar for the USB kit
-	@docker save -o devfest-images.tar $(IMAGES) devfest-observability-ledger devfest-observability-mockprovider
-	@echo "Copy the repo folder and devfest-images.tar to USB. Attendees: docker load -i devfest-images.tar"
+ntfy-local: ## Offline Plan B: start a local ntfy server phones can reach on the hotspot
+	@$(DC) --profile offline up -d ntfy && echo "ntfy on http://$$(ipconfig getifaddr en0 2>/dev/null || hostname -I | cut -d' ' -f1):$${NTFY_LOCAL_PORT:-2586} - set NTFY_URL=http://ntfy in .env and make up"
+
+##@ Stage
+stage: ## Switch to a prebuilt branch without compiling: make stage STAGE=02-traces
+	@scripts/stage.sh "$(STAGE)"
+
+prebuild: ## Build devfest26/app:<branch> for every branch
+	@scripts/prebuild.sh
+
+preflight: ## Morning-of go/no-go check
+	@scripts/preflight.sh
+
+calibrate: ## Measure bug impact on this machine and suggest ROWS/HISTORY
+	@scripts/calibrate.sh
+
+##@ Proof
+verify: ## Re-run every check end to end and write a new evidence/ folder
+	@scripts/verify.sh
+
+##@ Offline
+offline-kit: ## Vendor modules and save every image to offline-kit/ for a USB stick
+	@scripts/offline-kit.sh

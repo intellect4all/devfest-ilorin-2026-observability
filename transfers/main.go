@@ -1,71 +1,91 @@
-// Command transfers is the public API: POST /transfers moves money between
-// two accounts by checking the balance in the ledger, posting entries, and
-// paying out through the provider. Attendees add tracing to this service.
+// Command transfers is the public payments API. POST /transfers moves money
+// between two accounts: it checks for a duplicate request, counts the amount
+// against the sender's daily limit, asks the ledger for the balance, posts
+// the ledger entries and pays out through the provider.
 package main
 
 import (
 	"context"
-	"log/slog"
+	"log"
 	"net/http"
-	"os"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"devfest-observability/internal/obs"
+	"devfest/internal/httpx"
 )
 
 type app struct {
-	db       *pgxpool.Pool
-	log      *slog.Logger
+	store    *store
+	recent   *recentTransfers
+	locks    *accountLocks
 	ledger   *ledgerClient
 	provider *providerClient
 }
 
 func main() {
 	ctx := context.Background()
-	log := obs.NewLogger("transfers")
 
-	// >>> STEP1
-	shutdown, err := initTracer(ctx)
+	db, err := pgxpool.New(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
 	if err != nil {
-		log.Error("tracer init failed", "err", err)
-		os.Exit(1)
-	}
-	defer func() { _ = shutdown(context.Background()) }()
-	// <<< STEP1
-
-	db, err := pgxpool.New(ctx, obs.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
-	if err != nil {
-		log.Error("database pool failed", "err", err)
-		os.Exit(1)
+		log.Fatalf("database pool: %v", err)
 	}
 	defer db.Close()
-	if err := migrate(ctx, db); err != nil {
-		log.Error("migration failed", "err", err)
-		os.Exit(1)
+
+	limit, _ := strconv.ParseInt(httpx.Env("DAILY_LIMIT_KOBO", "100000000000000"), 10, 64)
+	a := &app{
+		store:    &store{db: db},
+		recent:   newRecentTransfers(),
+		locks:    newAccountLocks(limit),
+		ledger:   newLedgerClient(httpx.Env("LEDGER_URL", "http://localhost:8081")),
+		provider: newProviderClient(httpx.Env("PROVIDER_URL", "http://localhost:8082")),
+	}
+	if err := a.store.migrate(ctx); err != nil {
+		log.Fatalf("migration: %v", err)
 	}
 
-	a := &app{
-		db:       db,
-		log:      log,
-		ledger:   newLedgerClient(obs.Env("LEDGER_URL", "http://localhost:8081")),
-		provider: newProviderClient(obs.Env("PROVIDER_URL", "http://localhost:8082")),
+	// Remember the last 24 hours of transfers so retries are recognised
+	// even after a restart.
+	start := time.Now()
+	recent, err := a.store.recent(ctx, time.Now().Add(-recentWindow))
+	if err != nil {
+		log.Fatalf("loading recent transfers: %v", err)
 	}
+	a.recent.Load(recent)
+	log.Printf("loaded %d recent transfers in %s", len(recent), time.Since(start).Round(time.Millisecond))
 
 	mux := http.NewServeMux()
-	mux.Handle("POST /transfers", obs.RED("transfers", "POST /transfers", http.HandlerFunc(a.createTransfer)))
-	mux.Handle("GET /metrics", promhttp.Handler())
-	mux.HandleFunc("GET /healthz", obs.Healthz)
+	mux.HandleFunc("POST /transfers", a.createTransfer)
+	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	// STEP1-ALT: handler := http.Handler(mux)
-	// >>> STEP1
-	handler := otelhttp.NewHandler(mux, "transfers",
-		otelhttp.WithSpanNameFormatter(obs.SpanName),
-		otelhttp.WithFilter(obs.SkipNoise),
-	)
-	// <<< STEP1
+	httpx.Serve(":"+httpx.Env("PORT", "8080"), mux, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
+}
 
-	obs.Serve(log, ":"+obs.Env("PORT", "8080"), handler)
+// adminMux serves the presenter's bug toggles:
+//
+//	GET  /admin/bugs            current state
+//	POST /admin/bugs?a=on&c=off bug A: O(n) duplicate check; bug C: lock held across payout
+func (a *app) adminMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/bugs", a.bugState)
+	mux.HandleFunc("POST /admin/bugs", func(w http.ResponseWriter, r *http.Request) {
+		if on, ok := httpx.Toggle(r, "a"); ok {
+			a.recent.linearScan.Store(on)
+		}
+		if on, ok := httpx.Toggle(r, "c"); ok {
+			a.locks.holdAcrossPayout.Store(on)
+		}
+		a.bugState(w, r)
+	})
+	mux.HandleFunc("GET /healthz", httpx.Healthz)
+	return mux
+}
+
+func (a *app) bugState(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"a":                a.recent.linearScan.Load(),
+		"c":                a.locks.holdAcrossPayout.Load(),
+		"recent_transfers": a.recent.Len(),
+	})
 }

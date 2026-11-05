@@ -1,0 +1,9 @@
+{
+  "name": "devfest26-evidence",
+  "private": true,
+  "description": "Screenshots for evidence/: runs inside mcr.microsoft.com/playwright:v1.63.0-noble (see scripts/shoot.sh)",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

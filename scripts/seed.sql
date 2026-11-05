@@ -1,16 +1,22 @@
--- Seeds the ledger with :rows entries spread over 50,000 accounts
--- (acct-00001 .. acct-50000). Every account ends up with a positive balance.
--- Usage: psql -v rows=3000000 -f seed.sql   (or: make seed ROWS=3000000)
+-- Seed data for the workshop. Run with: make seed ROWS=... HISTORY=...
+--
+--   entries    :rows ledger entries spread over 50,000 accounts. The bigger the
+--              table, the slower the balance query once bug B drops its index.
+--              acct-00001 is the settlement wallet that most payouts leave from,
+--              so it gets a huge opening balance.
+--   transfers  :history completed transfers from the last 24 hours. The
+--              transfers service loads them at start-up to recognise retried
+--              Idempotency-Keys; bug A scans all of them on every request.
+--
+-- The services create the tables; this script only fills them, so run it
+-- after `make up`.
+\set ON_ERROR_STOP on
 \timing on
 
-CREATE TABLE IF NOT EXISTS entries (
-  id          BIGSERIAL PRIMARY KEY,
-  account_id  TEXT        NOT NULL,
-  transfer_id TEXT        NOT NULL,
-  amount      BIGINT      NOT NULL,
-  memo        TEXT        NOT NULL DEFAULT '',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+TRUNCATE entries, transfers;
+
+-- Bulk-load without the index, then build it once: much faster.
+DROP INDEX IF EXISTS idx_entries_account_id;
 
 INSERT INTO entries (account_id, transfer_id, amount, memo)
 SELECT 'acct-' || lpad((1 + (g % 50000))::text, 5, '0'),
@@ -19,5 +25,25 @@ SELECT 'acct-' || lpad((1 + (g % 50000))::text, 5, '0'),
        'opening balance migration from legacy core banking system'
 FROM generate_series(1, :rows) AS g;
 
+INSERT INTO entries (account_id, transfer_id, amount, memo)
+VALUES ('acct-00001', 'seed-settlement-float', 1000000000000000, 'settlement wallet float');
+
+CREATE INDEX idx_entries_account_id ON entries (account_id);
+
+INSERT INTO transfers (id, idempotency_key, from_account, to_account, amount, status, provider_ref, created_at)
+SELECT 'trf_seed' || lpad(g::text, 10, '0'),
+       upper(md5(g::text)::uuid::text),
+       'acct-' || lpad((1 + (g % 1000))::text, 5, '0'),
+       'acct-' || lpad((2 + (g % 997))::text, 5, '0'),
+       100 + (g % 4900),
+       'completed',
+       'PRV-SEED' || g,
+       now() - interval '23 hours' * (1 - g::float / :history)
+FROM generate_series(1, :history) AS g;
+
 ANALYZE entries;
-SELECT count(*) AS entries, pg_size_pretty(pg_total_relation_size('entries')) AS size FROM entries;
+ANALYZE transfers;
+
+SELECT (SELECT count(*) FROM entries) AS entries,
+       pg_size_pretty(pg_total_relation_size('entries')) AS entries_size,
+       (SELECT count(*) FROM transfers) AS transfers;

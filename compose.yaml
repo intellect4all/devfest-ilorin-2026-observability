@@ -1,0 +1,110 @@
+# The workshop stack. Use the Makefile rather than calling compose directly:
+# it sets STAGE (the image tag = the current git branch) and waits for health.
+name: devfest26
+
+x-app: &app
+  image: devfest26/app:${STAGE:-main}
+  build:
+    context: .
+    args: { GIT_REF: "${STAGE:-main}" }
+  restart: unless-stopped
+  stop_grace_period: 3s
+
+services:
+  postgres:
+    image: postgres:17.10-alpine
+    environment:
+      POSTGRES_USER: devfest
+      POSTGRES_PASSWORD: devfest
+      POSTGRES_DB: devfest
+    # Single-threaded scans and a fixed CPU budget keep bug B's cost the same
+    # from one laptop to the next.
+    command: ["postgres", "-c", "max_parallel_workers_per_gather=0", "-c", "shared_buffers=256MB"]
+    cpus: 2
+    shm_size: 256m
+    ports: ["127.0.0.1:${PG_PORT:-5432}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devfest -d devfest"]
+      interval: 2s
+      retries: 30
+
+  # OpenTelemetry Collector + Prometheus + Tempo + Loki + Grafana in one box.
+  lgtm:
+    image: grafana/otel-lgtm:0.35.0
+    environment:
+      GF_PLUGINS_PREINSTALL_DISABLED: "true" # works offline
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 5s
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${PROM_PORT:-9090}:9090"
+      - "127.0.0.1:${TEMPO_PORT:-3200}:3200"
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+      - "127.0.0.1:${OTLP_PORT:-4318}:4318"
+    volumes:
+      - lgtm-data:/data
+      - ./grafana/provisioning/datasources:/otel-lgtm/grafana/conf/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards:ro
+      - ./grafana/provisioning/alerting:/otel-lgtm/grafana/conf/provisioning/alerting:ro
+      - ./grafana/dashboards:/devfest/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 2s
+      retries: 90
+
+  ledger:
+    <<: *app
+    command: ["/app/ledger"]
+    environment:
+      DATABASE_URL: postgres://devfest:devfest@postgres:5432/devfest?pool_max_conns=8
+    ports: ["127.0.0.1:${LEDGER_PORT:-8081}:8081", "127.0.0.1:7081:7081"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  provider:
+    <<: *app
+    command: ["/app/provider"]
+    environment:
+      PROVIDER_LATENCY_MS: "50"
+    ports: ["127.0.0.1:${PROVIDER_PORT:-8082}:8082", "127.0.0.1:7082:7082"]
+
+  transfers:
+    <<: *app
+    command: ["/app/transfers"]
+    environment:
+      DATABASE_URL: postgres://devfest:devfest@postgres:5432/devfest?pool_max_conns=10
+      LEDGER_URL: http://ledger:8081
+      PROVIDER_URL: http://provider:8082
+    ports: ["127.0.0.1:${TRANSFERS_PORT:-8080}:8080", "127.0.0.1:7080:7080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Steady traffic: `make load` starts it, `make load-stop` stops it.
+  loadgen:
+    <<: *app
+    command:
+      - /app/loadgen
+      - -url=http://transfers:8080/transfers
+      - -rate=${LOAD_RATE:-20}
+      - -hot=${LOAD_HOT:-0.7}
+    restart: "no"
+    profiles: [load]
+
+  # Offline Plan B for alerts: a local ntfy server phones can reach over the
+  # hotspot. `make ntfy-local` starts it.
+  ntfy:
+    image: binwiederhier/ntfy:v2.29.0
+    command: ["serve", "--base-url", "http://localhost:${NTFY_LOCAL_PORT:-2586}", "--cache-file", "/var/cache/ntfy/cache.db"]
+    ports: ["0.0.0.0:${NTFY_LOCAL_PORT:-2586}:80"]
+    volumes: [ntfy-cache:/var/cache/ntfy]
+    profiles: [offline]
+
+volumes:
+  pgdata:
+  lgtm-data:
+  ntfy-cache:

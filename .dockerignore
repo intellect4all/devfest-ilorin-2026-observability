@@ -1,0 +1,7 @@
+.git
+evidence
+docs
+tools
+offline-kit
+*.tar
+.env
