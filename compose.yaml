@@ -80,6 +80,7 @@ services:
       DATABASE_URL: postgres://devfest:devfest@postgres:5432/devfest?pool_max_conns=10
       LEDGER_URL: http://ledger:8081
       PROVIDER_URL: http://provider:8082
+      PREFUNDED_ACCOUNTS: acct-00001 # the settlement wallet skips the balance check
     ports: ["127.0.0.1:${TRANSFERS_PORT:-8080}:8080", "127.0.0.1:7080:7080"]
     depends_on:
       postgres: { condition: service_healthy }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -45,8 +46,11 @@ func main() {
 		provider:  newProviderClient(httpx.Env("PROVIDER_URL", "http://localhost:8082")),
 		prefunded: map[string]bool{},
 	}
-	for _, acct := range strings.Split(httpx.Env("PREFUNDED_ACCOUNTS", "acct-00001"), ",") {
-		a.prefunded[strings.TrimSpace(acct)] = true
+	// Fail closed: no account skips the balance check unless configured.
+	for _, acct := range strings.Split(os.Getenv("PREFUNDED_ACCOUNTS"), ",") {
+		if acct = strings.TrimSpace(acct); acct != "" {
+			a.prefunded[acct] = true
+		}
 	}
 	if err := a.store.migrate(ctx); err != nil {
 		log.Fatalf("migration: %v", err)
