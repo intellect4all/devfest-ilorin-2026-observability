@@ -70,7 +70,7 @@ services:
     <<: *app
     command: ["/app/provider"]
     environment:
-      PROVIDER_LATENCY_MS: "40"
+      PROVIDER_LATENCY_MS: "35"
     ports: ["127.0.0.1:${PROVIDER_PORT:-8082}:8082", "127.0.0.1:7082:7082"]
 
   transfers:

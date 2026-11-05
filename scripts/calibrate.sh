@@ -36,8 +36,9 @@ to_ms() {
 		else print 0 }'
 }
 
-# summarise <label>: median of the per-window p50 and the max per-window p99
-# over the measured windows (lines after the warm-up).
+# summarise: median of the per-window p50 and p99 over the measured windows
+# (lines after the warm-up). Each 5 s window holds about 100 requests, so
+# its p99 is noisy; the median of many windows is a steady number.
 summarise() {
 	local skip=$((WARM / 5)) p50s=() p99s=() line
 	while read -r line; do
@@ -52,7 +53,7 @@ summarise() {
 	done
 	local p50 p99
 	p50=$(printf '%s\n' "${p50s[@]}" | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)] + 0}')
-	p99=$(printf '%s\n' "${p99s[@]}" | sort -n | tail -1)
+	p99=$(printf '%s\n' "${p99s[@]}" | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)] + 0}')
 	echo "${p50:-0} ${p99:-0}"
 }
 
@@ -95,12 +96,12 @@ phase B "curl -sf -X POST '$L_ADMIN?b=on' >/dev/null"
 phase C "curl -sf -X POST '$T_ADMIN?c=on' >/dev/null"
 
 echo
-echo "targets: healthy p99 < 200 ms | A steady p99 < 300 ms but A_surge > 1000 ms | B p99 600-1000 ms | C p99 > 1000 ms"
+echo "targets (client side, median of 5 s windows): healthy p99 < 200 ms | A < 300 ms but A_surge > 1000 ms | B 450-1000 ms | C > 1000 ms"
 # Queueing makes bug B very non-linear near saturation, so suggest small steps.
 b=${P99_B%.*}
 if [[ -z $b ]]; then
 	:
-elif ((b < 600)); then
+elif ((b < 450)); then
 	echo "  bug B too mild: re-seed with about 15% more rows: make seed ROWS=$((rows * 115 / 100 / 100000 * 100000))"
 elif ((b > 1000)); then
 	echo "  bug B too strong: re-seed with about 10% fewer rows: make seed ROWS=$((rows * 90 / 100 / 100000 * 100000))"
