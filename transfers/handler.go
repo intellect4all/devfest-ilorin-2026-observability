@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -77,7 +77,13 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 	// 1. Have we seen this Idempotency-Key before?
 	var prev *transfer
 	_ = step(ctx, "duplicate_check", func(ctx context.Context) error {
-		prev, _ = a.recent.Claim(t)
+		start := time.Now()
+		var scanned int
+		prev, scanned = a.recent.Claim(t)
+		if took := time.Since(start); took > slowStep {
+			slog.WarnContext(ctx, "slow duplicate check",
+				"entries_scanned", scanned, "duration_ms", took.Milliseconds())
+		}
 		return nil
 	})
 	if prev != nil {
@@ -89,10 +95,17 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 	var res *reservation
 	err := step(ctx, "account_lock.wait", func(ctx context.Context) error {
 		var err error
-		res, _, err = a.locks.Reserve(t.From, t.ID, t.Amount)
+		var wait lockWait
+		res, wait, err = a.locks.Reserve(t.From, t.ID, t.Amount)
+		if wait.Waited > slowStep {
+			slog.WarnContext(ctx, "waited for account lock",
+				"account", t.From, "wait_ms", wait.Waited.Milliseconds(),
+				"held_by_transfer", wait.HeldBy, "held_by_step", wait.HeldByStep)
+		}
 		return err
 	})
 	if errors.Is(err, errVelocityLimit) {
+		slog.InfoContext(ctx, "transfer rejected: daily limit reached", "account", t.From, "amount", t.Amount)
 		countTransfer(ctx, "limited")
 		a.recent.Forget(t)
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
@@ -106,18 +119,22 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 	out, err := a.move(ctx, t, res)
 	res.Done(out.status != statusCompleted)
 	a.recent.Complete(t, out.status, out.providerRef)
-	if err != nil {
-		log.Printf("transfer %s failed: %v", t.ID, err)
-	}
-
 	t = t.done(out)
 	if err := a.store.save(ctx, t); err != nil {
-		log.Printf("saving transfer %s: %v", t.ID, err)
+		slog.ErrorContext(ctx, "saving transfer failed", "transfer_id", t.ID, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "saving transfer failed")
 		return
 	}
 	countTransfer(ctx, t.Status)
-	log.Printf("transfer %s %s -> %s %d: %s", t.ID, t.From, t.To, t.Amount, t.Status)
+
+	// One line per business outcome: INFO when it worked, ERROR when the
+	// customer was let down.
+	attrs := []any{"transfer_id", t.ID, "status", t.Status, "from", t.From, "to", t.To, "amount", t.Amount}
+	if err != nil {
+		slog.ErrorContext(ctx, "transfer failed", append(attrs, "err", err)...)
+	} else {
+		slog.InfoContext(ctx, "transfer processed", attrs...)
+	}
 	httpx.WriteJSON(w, out.code, t)
 }
 
@@ -187,7 +204,7 @@ func (a *app) replay(ctx context.Context, w http.ResponseWriter, prev *transfer)
 		httpx.Error(w, http.StatusConflict, "a transfer with this Idempotency-Key is still in progress")
 		return
 	}
-	log.Printf("idempotent replay of transfer %s", prev.ID)
+	slog.InfoContext(ctx, "idempotent replay", "transfer_id", prev.ID, "status", prev.Status)
 	httpx.WriteJSON(w, http.StatusOK, prev)
 }
 
@@ -196,6 +213,9 @@ func countTransfer(ctx context.Context, status string) {
 }
 
 var tracer = otel.Tracer("devfest/transfers")
+
+// slowStep is when a business step is slow enough to be worth a WARN line.
+const slowStep = 100 * time.Millisecond
 
 // step runs one business step of a transfer inside its own span, so the
 // trace shows where the time went.

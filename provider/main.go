@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -85,11 +86,12 @@ func (p *provider) payout(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-time.After(delay):
 	case <-ctx.Done():
-		log.Printf("caller gave up on payout %s", req.TransferID)
+		slog.WarnContext(ctx, "caller gave up before the payout finished", "transfer_id", req.TransferID, "delay_ms", delay.Milliseconds())
 		return
 	}
 
 	if rand.Float64() < cfg.ErrorRate {
+		slog.WarnContext(ctx, "payout rejected: switch unavailable", "transfer_id", req.TransferID)
 		httpx.Error(w, http.StatusBadGateway, "switch unavailable")
 		return
 	}

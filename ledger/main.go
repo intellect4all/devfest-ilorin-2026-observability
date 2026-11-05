@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +40,9 @@ var migrations = []string{
 }
 
 type server struct{ db *pgxpool.Pool }
+
+// slowQuery is when a query is slow enough to be worth a WARN line.
+const slowQuery = 100 * time.Millisecond
 
 func main() {
 	ctx := context.Background()
@@ -106,10 +111,15 @@ func (s *server) balance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var bal int64
+	start := time.Now()
 	if err := s.db.QueryRow(ctx, balanceQuery, account).Scan(&bal); err != nil {
-		log.Printf("balance query for %s failed: %v", account, err)
+		slog.ErrorContext(ctx, "balance query failed", "account", account, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "balance query failed")
 		return
+	}
+	if took := time.Since(start); took > slowQuery {
+		slog.WarnContext(ctx, "slow query",
+			"duration_ms", took.Milliseconds(), "db.query.text", balanceQuery, "account", account)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"account": account, "balance": bal})
 }
@@ -145,7 +155,7 @@ func (s *server) postEntries(w http.ResponseWriter, r *http.Request) {
 		return tx.Commit(ctx)
 	}()
 	if err != nil {
-		log.Printf("posting entries for %s failed: %v", req.TransferID, err)
+		slog.ErrorContext(ctx, "posting entries failed", "transfer_id", req.TransferID, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, "posting entries failed")
 		return
 	}
