@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"devfest/internal/httpx"
 )
@@ -62,6 +65,14 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 	if t.Key == "" {
 		t.Key = "auto-" + t.ID
 	}
+	// IDs belong in span attributes (searchable per request), never in
+	// metric labels.
+	trace.SpanFromContext(ctx).SetAttributes(
+		attribute.String("transfer.id", t.ID),
+		attribute.String("account.from", t.From),
+		attribute.String("account.to", t.To),
+		attribute.Int64("transfer.amount", t.Amount),
+	)
 
 	// 1. Have we seen this Idempotency-Key before?
 	var prev *transfer
@@ -184,9 +195,19 @@ func countTransfer(ctx context.Context, status string) {
 	transfersProcessed.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
 
-// step runs one business step of a transfer.
+var tracer = otel.Tracer("devfest/transfers")
+
+// step runs one business step of a transfer inside its own span, so the
+// trace shows where the time went.
 func step(ctx context.Context, name string, fn func(context.Context) error) error {
-	return fn(ctx)
+	ctx, span := tracer.Start(ctx, name)
+	defer span.End()
+	err := fn(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return err
 }
 
 func newID() string {

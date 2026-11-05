@@ -11,8 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"devfest/internal/httpx"
 	"devfest/internal/telemetry"
@@ -47,7 +48,7 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	db, err := pgxpool.New(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
+	db, err := telemetry.NewDBPool(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
 	if err != nil {
 		log.Fatalf("database pool: %v", err)
 	}
@@ -65,7 +66,8 @@ func main() {
 	mux.HandleFunc("POST /entries", s.postEntries)
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	api := otelhttp.NewHandler(mux, "ledger", otelhttp.WithFilter(telemetry.SkipHealthz))
+	api := otelhttp.NewHandler(mux, "ledger",
+		otelhttp.WithFilter(telemetry.SkipHealthz), otelhttp.WithSpanNameFormatter(telemetry.SpanName))
 	httpx.Serve(":"+httpx.Env("PORT", "8081"), api, ":"+httpx.Env("ADMIN_PORT", "7081"), s.adminMux())
 }
 
@@ -97,6 +99,7 @@ func migrate(ctx context.Context, db *pgxpool.Pool) error {
 func (s *server) balance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	account := r.URL.Query().Get("account")
+	trace.SpanFromContext(ctx).SetAttributes(attribute.String("account.id", account))
 	if account == "" {
 		httpx.Error(w, http.StatusBadRequest, "account is required")
 		return
@@ -120,12 +123,14 @@ func (s *server) postEntries(w http.ResponseWriter, r *http.Request) {
 		To         string `json:"to"`
 		Amount     int64  `json:"amount"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransferID == "" || req.From == "" || req.To == "" || req.Amount <= 0 {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	trace.SpanFromContext(ctx).SetAttributes(attribute.String("transfer.id", req.TransferID))
+	if err != nil || req.TransferID == "" || req.From == "" || req.To == "" || req.Amount <= 0 {
 		httpx.Error(w, http.StatusBadRequest, "transfer_id, from, to and a positive amount are required")
 		return
 	}
 
-	err := func() error {
+	err = func() error {
 		tx, err := s.db.Begin(ctx)
 		if err != nil {
 			return err

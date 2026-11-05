@@ -13,9 +13,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
@@ -51,8 +54,25 @@ func Setup(ctx context.Context, service string) (func(context.Context) error, er
 		return nil, err
 	}
 
+	// Traces: batched off the request path. Every request is kept, which is
+	// right for a demo; production systems usually sample.
+	traceExp, err := otlptracehttp.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithBatcher(traceExp, sdktrace.WithBatchTimeout(time.Second)),
+	)
+	otel.SetTracerProvider(tp)
+
+	// W3C traceparent between services. Forget this and every service
+	// starts its own trace.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, propagation.Baggage{}))
+
 	return func(ctx context.Context) error {
-		return errors.Join(mp.Shutdown(ctx))
+		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
 	}, nil
 }
 
@@ -76,5 +96,8 @@ func processCPU() error {
 
 func tv(t syscall.Timeval) float64 { return float64(t.Sec) + float64(t.Usec)/1e6 }
 
-// SkipHealthz keeps liveness probes out of the RED metrics.
+// SkipHealthz keeps liveness probes out of metrics and traces.
 func SkipHealthz(r *http.Request) bool { return r.URL.Path != "/healthz" }
+
+// SpanName names server and client spans "POST /transfers".
+func SpanName(_ string, r *http.Request) string { return r.Method + " " + r.URL.Path }

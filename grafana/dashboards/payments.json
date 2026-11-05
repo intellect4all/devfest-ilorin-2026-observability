@@ -301,7 +301,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Latency: p50 / p95 / p99",
+      "title": "Latency: p50 / p95 / p99  (diamonds are exemplars: click one for its trace)",
       "description": "Histogram quantiles, never averages. The dashed line is the SLO.",
       "datasource": {
         "type": "prometheus",
@@ -947,6 +947,60 @@
         "x": 18,
         "y": 24,
         "w": 6,
+        "h": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Slowest recent transfers (Tempo)",
+      "collapsed": false,
+      "panels": [],
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Slowest transfers (over 80 ms, slowest first): click a trace ID",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"transfers\" && name=\"POST /transfers\" && duration > 80ms}",
+          "limit": 10,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Duration",
+            "desc": true
+          }
+        ]
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
         "h": 8
       }
     }

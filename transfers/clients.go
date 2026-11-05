@@ -11,8 +11,11 @@ import (
 	"net/url"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"devfest/internal/telemetry"
 )
 
 // statusError is a non-2xx answer from another service.
@@ -26,7 +29,13 @@ func (e *statusError) Error() string {
 }
 
 func newHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
+	return &http.Client{
+		Timeout: timeout,
+		// A client span per call, and the traceparent header that lets the
+		// next service join this trace.
+		Transport: otelhttp.NewTransport(http.DefaultTransport,
+			otelhttp.WithSpanNameFormatter(telemetry.SpanName)),
+	}
 }
 
 // doJSON sends in as JSON and decodes the response into out.

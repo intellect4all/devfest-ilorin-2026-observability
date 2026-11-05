@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"devfest/internal/httpx"
 	"devfest/internal/telemetry"
@@ -49,7 +51,8 @@ func main() {
 	mux.HandleFunc("POST /payouts", p.payout)
 	mux.HandleFunc("GET /healthz", httpx.Healthz)
 
-	api := otelhttp.NewHandler(mux, "provider", otelhttp.WithFilter(telemetry.SkipHealthz))
+	api := otelhttp.NewHandler(mux, "provider",
+		otelhttp.WithFilter(telemetry.SkipHealthz), otelhttp.WithSpanNameFormatter(telemetry.SpanName))
 	httpx.Serve(":"+httpx.Env("PORT", "8082"), api, ":"+httpx.Env("ADMIN_PORT", "7082"), p.adminMux())
 }
 
@@ -67,7 +70,9 @@ func (p *provider) payout(w http.ResponseWriter, r *http.Request) {
 		Account    string `json:"account"`
 		Amount     int64  `json:"amount"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransferID == "" {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	trace.SpanFromContext(ctx).SetAttributes(attribute.String("transfer.id", req.TransferID))
+	if err != nil || req.TransferID == "" {
 		httpx.Error(w, http.StatusBadRequest, "transfer_id is required")
 		return
 	}

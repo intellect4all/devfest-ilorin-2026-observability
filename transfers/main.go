@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"devfest/internal/httpx"
@@ -39,7 +38,7 @@ func main() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	db, err := pgxpool.New(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
+	db, err := telemetry.NewDBPool(ctx, httpx.Env("DATABASE_URL", "postgres://devfest:devfest@localhost:5432/devfest"))
 	if err != nil {
 		log.Fatalf("database pool: %v", err)
 	}
@@ -83,7 +82,8 @@ func main() {
 
 	// otelhttp records http.server.request.duration for every request:
 	// rate, errors (by status code) and duration in one histogram.
-	api := otelhttp.NewHandler(mux, "transfers", otelhttp.WithFilter(telemetry.SkipHealthz))
+	api := otelhttp.NewHandler(mux, "transfers",
+		otelhttp.WithFilter(telemetry.SkipHealthz), otelhttp.WithSpanNameFormatter(telemetry.SpanName))
 	httpx.Serve(":"+httpx.Env("PORT", "8080"), api, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
 }
 
