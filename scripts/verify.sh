@@ -33,7 +33,7 @@ command -v jq >/dev/null || die "verify needs jq"
 
 ONLY=${ONLY:-"main 01-metrics 02-traces 03-logs 04-alerts hunt solution stage offline"}
 want() { [[ " $ONLY " == *" $1 "* ]]; }
-ROWS=${ROWS:-5500000}
+ROWS=${ROWS:-7000000}
 HISTORY=${HISTORY:-80000}
 
 # goto <branch>: check out a branch in the scratch clone and refresh settings.
