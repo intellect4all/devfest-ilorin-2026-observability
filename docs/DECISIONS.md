@@ -69,6 +69,11 @@ would sample.
 - It refuses to start a span when there is no parent, so start-up queries (migrations, the history
   load) cannot create orphan traces.
 
+**Trace lookup by transfer ID uses `=~`.** In this Tempo build,
+`{span.transfer.id="trf_…"}` returns nothing, while `{span.transfer.id=~"trf_…"}`, which is anchored
+so it is effectively the same, finds the trace. Other attributes (`account.from`) match with `=`. The
+runbook uses the regex form when searching by ID.
+
 **CPU metric.** The runtime instrumentation has goroutines, memory and GC, but no CPU, so
 `internal/telemetry` adds a `process.cpu.time` observable counter from `getrusage(2)`.
 

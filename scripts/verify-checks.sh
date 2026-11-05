@@ -44,7 +44,9 @@ tx_trace() {
 	tid=$(grep -o '"transfer_id":"[^"]*"' <<<"$out" | cut -d'"' -f4)
 	for _ in 1 2 3 4 5 6 7 8 9 10; do
 		sleep 2
-		trace=$(node_tool trace.mjs search "{span.transfer.id=\"$tid\"}" 5 300 | jq -r '.[0].traceID // empty')
+		# =~ rather than =: in this Tempo build an exact match on transfer.id
+		# finds nothing while the (anchored) regex does.
+		trace=$(node_tool trace.mjs search "{span.transfer.id=~\"$tid\"}" 5 300 | jq -r '.[0].traceID // empty')
 		[[ -n $trace ]] && break
 	done
 	echo "$tid $trace"
@@ -66,7 +68,7 @@ verify_02() {
 	orphans=$(node_tool trace.mjs search '{trace:rootService != "transfers"}' 100 300 | jq length)
 	ev_shot one-transfer-one-trace trace "$trace"
 	local shot_ok=$?
-	EV_CMD="make tx; Tempo search {span.transfer.id=\"$tid\"}; Tempo search {trace:rootService != \"transfers\"} over 5 min"
+	EV_CMD="make tx; Tempo search {span.transfer.id=~\"$tid\"}; Tempo search {trace:rootService != \"transfers\"} over 5 min"
 	EV_EXPECT="one trace with spans from transfers, ledger and provider, a single root; no trace rooted anywhere else"
 	EV_ACTUAL="trace $trace: services [$services], roots $roots, $(jq .spanCount <<<"$analysis") spans; traces with another root in the last 5 min: $orphans"
 	EV_FILES="$trace_file $EV_PNG"
