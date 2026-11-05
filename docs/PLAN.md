@@ -78,11 +78,23 @@ docs, evidence) lives on `main` and reaches the other branches when the chain is
 | B | ledger, balance query | Postgres (persists!) | `DROP INDEX CONCURRENTLY idx_entries_account_id` so the balance `SUM` becomes a sequential scan |
 | C | transfers, per-account velocity-limit lock | in memory | the account lock is held for the whole transfer, including the provider payout, instead of just the limit bookkeeping |
 
-The loadgen sends a configurable share of traffic from one hot "settlement wallet" account
-(`acct-00001`), which is how payout fintechs really work. That skew is what makes the per-account lock
-(bug C) contend.
+The loadgen sends 90% of traffic from one hot "settlement wallet" account (`acct-00001`), which is how
+payout fintechs really work. That skew is what makes the per-account lock (bug C) contend. The wallet is
+pre-funded, so only the other 10% run the ledger balance query; that keeps bug B a tail-latency problem
+instead of a saturation cliff.
 
-The main incident is chosen from measured fingerprints (recorded in `DECISIONS.md`).
+The main incident is **bug C**, chosen from the measured fingerprints. The reasons are in `DECISIONS.md`.
+
+## How it turned out (measured on n2)
+
+| | Setting |
+|---|---|
+| Traffic | 20 req/s, 90% hot; surge +80 req/s for 90 s |
+| Provider | 35 ms + up to 35 ms of jitter |
+| Postgres | 3 CPUs, 1 GB shared buffers, no parallel scans |
+| Seed | 7,000,000 entries, 80,000 recent transfers |
+| Alerts | p99 > 300 ms for 20 s; 5xx > 5% for 20 s; evaluated every 10 s |
+| Stage switch | 3.0–3.6 s |
 
 ## Stage switching
 
@@ -116,8 +128,10 @@ to `evidence/LOG.md` and rewrites `evidence/SUMMARY.md`.
 10. **Offline kit:** load the tarball into a `docker:dind` container started with `--network none`, then run
     `make up && make check`.
 
-Screenshots are taken with Playwright inside the pinned Playwright image and reviewed by eye before a
-check is marked PASS. Every number comes from Prometheus/Tempo/Loki APIs or command output.
+Screenshots are taken with Playwright inside the pinned Playwright image. An automated audit rejects
+pages that show "No data", errors, a login page or blank graph canvases. Then every screenshot is
+reviewed by eye, and the review is appended to `LOG.md`; it can overturn an automated PASS. Every
+number comes from Prometheus/Tempo/Loki APIs or command output.
 
 ## Execution environment for the test runs
 
