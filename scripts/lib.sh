@@ -54,8 +54,13 @@ wait_for() {
 
 http_ok() { curl -sf -o /dev/null --max-time 3 "$1"; }
 
-# now: seconds since the epoch with milliseconds (macOS date has no %N).
-now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+# now: seconds since the epoch with milliseconds. GNU date has %N; macOS
+# date does not, but macOS perl always has Time::HiRes.
+if [[ $(date +%N) =~ ^[0-9]+$ ]]; then
+	now() { date +%s.%N; }
+else
+	now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+fi
 
 # wait_apps: every app service answers /healthz.
 wait_apps() {

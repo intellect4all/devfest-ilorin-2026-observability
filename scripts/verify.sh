@@ -52,10 +52,10 @@ common_checks() {
 	EV_CMD="make test"
 	EV_EXPECT="go build, go vet and go test pass in golang:1.26.8-alpine"
 	ev_run make-test make test
-	local st
-	st=$(pass_if grep -q '^ok  *devfest/transfers' "$EV_OUT")
-	grep -q '^FAIL\|^# exit [1-9]' "$EV_OUT" && st=FAIL
-	EV_ACTUAL="$(grep -cE '^ok ' "$EV_OUT") packages ok, $(grep -cE '^(FAIL|---)' "$EV_OUT") failures"
+	local st=PASS
+	grep -qE '^ok[[:space:]]+devfest/transfers' "$EV_OUT" || st=FAIL
+	grep -qE '^(FAIL|--- FAIL)|^# exit [1-9]' "$EV_OUT" && st=FAIL
+	EV_ACTUAL="$(grep -cE '^ok[[:space:]]' "$EV_OUT") packages ok, $(grep -cE '^(FAIL|--- FAIL)' "$EV_OUT") failures"
 	EV_FILES="$EV_OUT"
 	ev_check "$st" "go build / vet / test"
 
