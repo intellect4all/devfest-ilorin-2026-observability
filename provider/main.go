@@ -30,7 +30,7 @@ type provider struct {
 
 func main() {
 	p := &provider{cfg: settings{
-		Latency:     time.Duration(envInt("PROVIDER_LATENCY_MS", 50)) * time.Millisecond,
+		Latency:     time.Duration(envInt("PROVIDER_LATENCY_MS", 40)) * time.Millisecond,
 		ErrorRate:   envFloat("PROVIDER_ERROR_RATE", 0),
 		TimeoutRate: envFloat("PROVIDER_TIMEOUT_RATE", 0),
 	}}

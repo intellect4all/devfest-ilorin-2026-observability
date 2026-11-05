@@ -11,10 +11,10 @@ STAGE ?= $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
 export STAGE
 export COMPOSE_PROJECT_NAME := devfest26
 
-ROWS ?= 1200000
+ROWS ?= 4000000
 HISTORY ?= 80000
 LOAD_RATE ?= 20
-LOAD_HOT ?= 0.7
+LOAD_HOT ?= 0.9
 SURGE_RATE ?= 80
 SURGE_SECONDS ?= 90
 TRANSFERS_PORT ?= 8080
@@ -46,7 +46,7 @@ down: ## Stop the stack (keeps data)
 reset: ## Stop the stack and delete its data (this project's volumes only)
 	@$(DC) --profile load --profile offline down -v --remove-orphans
 
-seed: ## Load ROWS ledger entries and HISTORY recent transfers (defaults 1,200,000 / 80,000)
+seed: ## Load ROWS ledger entries and HISTORY recent transfers (defaults 4,000,000 / 80,000)
 	@$(DC) exec -T postgres psql -q -U devfest -d devfest -v rows=$(ROWS) -v history=$(HISTORY) -f /scripts/seed.sql
 	@$(DC) restart transfers >/dev/null && source scripts/lib.sh && wait_apps 90 && ok "seeded; transfers reloaded its history"
 

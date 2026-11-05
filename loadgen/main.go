@@ -62,7 +62,7 @@ func main() {
 	target := flag.String("url", "http://localhost:8080/transfers", "transfers endpoint")
 	rate := flag.Float64("rate", 20, "requests per second")
 	duration := flag.Duration("duration", 0, "stop after this long (0 = until Ctrl-C)")
-	hot := flag.Float64("hot", 0.7, "share of transfers sent from the settlement wallet acct-00001")
+	hot := flag.Float64("hot", 0.9, "share of transfers sent from the settlement wallet acct-00001")
 	accounts := flag.Int("accounts", 1000, "other senders and receivers are acct-00002..acct-N")
 	replay := flag.Float64("replay", 0.02, "share of requests that retry an earlier Idempotency-Key")
 	timeout := flag.Duration("timeout", 10*time.Second, "client timeout")

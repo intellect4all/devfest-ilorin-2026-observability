@@ -19,9 +19,9 @@ services:
       POSTGRES_DB: devfest
     # Single-threaded scans and a fixed CPU budget keep bug B's cost the same
     # from one laptop to the next.
-    command: ["postgres", "-c", "max_parallel_workers_per_gather=0", "-c", "shared_buffers=256MB"]
+    command: ["postgres", "-c", "max_parallel_workers_per_gather=0", "-c", "shared_buffers=1GB"]
     cpus: 2
-    shm_size: 256m
+    shm_size: 1g
     ports: ["127.0.0.1:${PG_PORT:-5432}:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -70,7 +70,7 @@ services:
     <<: *app
     command: ["/app/provider"]
     environment:
-      PROVIDER_LATENCY_MS: "50"
+      PROVIDER_LATENCY_MS: "40"
     ports: ["127.0.0.1:${PROVIDER_PORT:-8082}:8082", "127.0.0.1:7082:7082"]
 
   transfers:
@@ -92,7 +92,7 @@ services:
       - /app/loadgen
       - -url=http://transfers:8080/transfers
       - -rate=${LOAD_RATE:-20}
-      - -hot=${LOAD_HOT:-0.7}
+      - -hot=${LOAD_HOT:-0.9}
     restart: "no"
     profiles: [load]
 
