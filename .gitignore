@@ -1,0 +1,10 @@
+.DS_Store
+.remember/
+.env
+node_modules/
+tools/evidence/node_modules/
+vendor/
+/offline-kit/
+*.tar
+/.hunt/
+/bin/

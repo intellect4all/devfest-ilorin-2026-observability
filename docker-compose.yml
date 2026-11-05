@@ -1,0 +1,72 @@
+name: devfest-observability
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: devfest
+      POSTGRES_PASSWORD: devfest
+      POSTGRES_DB: devfest
+    # Single-threaded scans keep the workshop bug slow and predictable.
+    command: ["postgres", "-c", "max_parallel_workers_per_gather=0"]
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devfest -d devfest"]
+      interval: 2s
+      retries: 30
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # UI
+      - "4318:4318"   # OTLP over HTTP
+
+  ledger:
+    build: { context: ., args: { SERVICE: ledger } }
+    environment:
+      PORT: "8081"
+      DATABASE_URL: postgres://devfest:devfest@postgres:5432/devfest
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports: ["8081:8081"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      jaeger: { condition: service_started }
+
+  mockprovider:
+    build: { context: ., args: { SERVICE: mockprovider } }
+    environment:
+      PORT: "8082"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      PROVIDER_LATENCY_MS: "30"
+    ports: ["8082:8082"]
+    depends_on:
+      jaeger: { condition: service_started }
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # scrape transfers running on your laptop
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/red.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus, jaeger]
+
+volumes:
+  pgdata:

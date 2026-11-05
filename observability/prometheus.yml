@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: transfers
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+  - job_name: ledger
+    static_configs:
+      - targets: ["ledger:8081"]
+  - job_name: mockprovider
+    static_configs:
+      - targets: ["mockprovider:8082"]
