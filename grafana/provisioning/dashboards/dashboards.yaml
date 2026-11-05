@@ -1,4 +1,5 @@
-# Dashboards are JSON files in grafana/dashboards/ (mounted at /devfest/dashboards).
+# Dashboards are JSON files in grafana/dashboards/ (the repo's grafana/ folder
+# is mounted at /devfest/grafana).
 apiVersion: 1
 
 providers:
@@ -8,5 +9,5 @@ providers:
     allowUiUpdates: false
     updateIntervalSeconds: 5
     options:
-      path: /devfest/dashboards
+      path: /devfest/grafana/dashboards
       foldersFromFilesStructure: false

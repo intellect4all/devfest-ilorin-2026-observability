@@ -40,6 +40,10 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Provisioning comes from this repo's grafana/ folder only. The folder is
+      # mounted as a whole: git can delete and recreate a sub-folder on
+      # checkout, and a bind mount of that sub-folder would go stale.
+      GF_PATHS_PROVISIONING: /devfest/grafana/provisioning
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
       - "127.0.0.1:${PROM_PORT:-9090}:9090"
@@ -48,10 +52,7 @@ services:
       - "127.0.0.1:${OTLP_PORT:-4318}:4318"
     volumes:
       - lgtm-data:/data
-      - ./grafana/provisioning/datasources:/otel-lgtm/grafana/conf/provisioning/datasources:ro
-      - ./grafana/provisioning/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards:ro
-      - ./grafana/provisioning/alerting:/otel-lgtm/grafana/conf/provisioning/alerting:ro
-      - ./grafana/dashboards:/devfest/dashboards:ro
+      - ./grafana:/devfest/grafana:ro
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/ready"]
       interval: 2s
