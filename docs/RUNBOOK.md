@@ -143,7 +143,7 @@ Short, speakable lines. Don't read them; know them.
 ### Demo 3: logs (12:22)
 
 - *(Run `make bug-c-on`, then wait 20 s, then open a slow trace and the `account_lock.wait` span.)* "Same trace as before. Now: *Related logs*."
-- *(Tick `Log line`, `wait_ms`, `held_by_transfer`, `held_by_step`.)* "This request waited **9,800 milliseconds** for the account lock. The lock was held by **this other transfer**, and that transfer was in the middle of its **payout**: a network call to an external provider."
+- *(Tick `wait_ms`, `held_by_transfer`, `held_by_step`, then `Log line`.)* "This request waited **9,800 milliseconds** for the account lock. The lock was held by **this other transfer**, and that transfer was in the middle of its **payout**: a network call to an external provider."
 - "Somebody is holding a lock across a network call. Every payout from the settlement wallet waits for the previous one to come back from the provider. That's the bug."
 - **Hand-off:** "Metrics told us something was wrong. Traces told us where. Logs told us why. **Each one answered a question the others couldn't.**"
 - *(Run `make bug-c-off`.)* "And you'd never have found that with `print`. The line exists only because a trace ID connects it to the slow request."
@@ -211,7 +211,7 @@ Short, speakable lines. Don't read them; know them.
   1. Open a slow trace, as in Demo 2.
   2. Click **account_lock.wait**.
   3. Click **Related logs**. Loki opens on the right with this trace's lines.
-  4. In the Loki **Fields** list, tick **Log line**, **wait_ms**, **held_by_transfer** and **held_by_step**.
+  4. In the Loki **Fields** list, tick **wait_ms**, **held_by_transfer** and **held_by_step**, then **Log line** (it only appears once another field is selected).
   5. Read the WARN line out loud.
   6. Optional: expand the line → **View trace** (log back to trace).
 - **Should look like:** `evidence/latest/03-logs/*_bug-c-trace-to-logs.png`; log → trace is `*_log-line-to-trace.png`.

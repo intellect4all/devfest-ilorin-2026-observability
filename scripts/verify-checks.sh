@@ -23,9 +23,10 @@ expected_log() {
 # they show on the line (the same click path the runbook gives).
 log_view() {
 	case $1 in
-	a) echo "slow duplicate check|Log line,entries_scanned,duration_ms" ;;
-	b) echo "slow query|Log line,duration_ms,db_query_text" ;;
-	c) echo "waited for|Log line,wait_ms,held_by_transfer,held_by_step" ;;
+	# "Log line" last: Grafana only offers it once another field is selected.
+	a) echo "slow duplicate check|entries_scanned,duration_ms,Log line" ;;
+	b) echo "slow query|duration_ms,db_query_text,Log line" ;;
+	c) echo "waited for|wait_ms,held_by_transfer,held_by_step,Log line" ;;
 	esac
 }
 
@@ -42,7 +43,8 @@ tx_trace() {
 	key=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 	out=$(make -s tx KEY="$key")
 	tid=$(grep -o '"transfer_id":"[^"]*"' <<<"$out" | cut -d'"' -f4)
-	for _ in 1 2 3 4 5 6 7 8 9 10; do
+	# Tempo can take tens of seconds to return a brand-new trace from search.
+	for _ in $(seq 1 30); do
 		sleep 2
 		# =~ rather than =: in this Tempo build an exact match on transfer.id
 		# finds nothing while the (anchored) regex does.
