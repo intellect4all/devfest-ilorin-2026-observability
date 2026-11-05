@@ -249,14 +249,14 @@ def build(traces=False, alerts=False):
         add(
             {
                 "type": "table",
-                "title": "Slowest transfers in the last 5 minutes: click a trace ID",
+                "title": "Slowest transfers (over 80 ms, slowest first): click a trace ID",
                 "datasource": TEMPO,
                 "targets": [
                     {
                         "datasource": TEMPO,
                         "refId": "A",
                         "queryType": "traceql",
-                        "query": '{resource.service.name="transfers" && name="POST /transfers"} | duration > 250ms',
+                        "query": '{resource.service.name="transfers" && name="POST /transfers"} | duration > 80ms',
                         "limit": 10,
                         "tableType": "traces",
                     }

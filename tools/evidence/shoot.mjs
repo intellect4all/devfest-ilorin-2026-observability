@@ -77,7 +77,7 @@ async function clickText(re, opts = {}) {
 
 try {
   if (cmd === "dashboard") {
-    const [uid, out, from = "now-15m", height = "1300"] = args;
+    const [uid, out, from = "now-15m", height = "1900"] = args;
     // A tall viewport, not fullPage: a full-page capture resizes the page,
     // Grafana re-lays out and clears its canvases mid-capture (empty graphs).
     await page.setViewportSize({ width: 1600, height: Number(height) });
