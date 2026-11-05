@@ -48,6 +48,25 @@ async function audit() {
   result.title = await page.title();
 }
 
+// graphsDrawn flags time-series panels whose canvas is still blank, the
+// failure that "No data" text alone does not catch.
+async function graphsDrawn() {
+  const blank = await page.evaluate(() => {
+    let n = 0;
+    for (const c of document.querySelectorAll("canvas")) {
+      if (c.width < 50 || c.height < 50) continue;
+      const ctx = c.getContext("2d");
+      if (!ctx) continue;
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let painted = 0;
+      for (let i = 3; i < d.length; i += 4 * 97) if (d[i] > 0) painted++;
+      if (painted === 0) n++;
+    }
+    return n;
+  });
+  if (blank) result.problems.push(`${blank} blank graph canvas(es)`);
+}
+
 async function clickText(re, opts = {}) {
   const el = page.getByText(re, opts).first();
   await el.waitFor({ timeout: 20000 });
@@ -56,11 +75,15 @@ async function clickText(re, opts = {}) {
 
 try {
   if (cmd === "dashboard") {
-    const [uid, out, from = "now-15m"] = args;
+    const [uid, out, from = "now-15m", height = "1300"] = args;
+    // A tall viewport, not fullPage: a full-page capture resizes the page,
+    // Grafana re-lays out and clears its canvases mid-capture (empty graphs).
+    await page.setViewportSize({ width: 1600, height: Number(height) });
     await page.goto(`${GRAFANA}/d/${uid}?orgId=1&kiosk&from=${from}&to=now&refresh=`, { waitUntil: "domcontentloaded" });
-    await settle(3000);
+    await settle(4000);
     await audit();
-    await page.screenshot({ path: out, fullPage: true });
+    await graphsDrawn();
+    await page.screenshot({ path: out });
   } else if (cmd === "trace") {
     const [traceId, out, spanName, logs] = args;
     await page.goto(

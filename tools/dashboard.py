@@ -124,7 +124,7 @@ def build(traces=False, alerts=False):
 
     add(
         ts(
-            "Latency: p50 / p95 / p99  (diamonds are exemplars: click one for its trace)",
+            "Latency: p50 / p95 / p99" + ("  (diamonds are exemplars: click one for its trace)" if traces else ""),
             [
                 target(quantile(0.50, tr), "p50", "A"),
                 target(quantile(0.95, tr), "p95", "B"),
