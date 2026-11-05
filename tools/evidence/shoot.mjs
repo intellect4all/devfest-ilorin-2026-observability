@@ -122,15 +122,14 @@ try {
         await page.getByText(new RegExp(logLine)).last().waitFor({ timeout: 20000 });
         const shown = [];
         for (const field of logLine.split("|")[1]?.split(",") || []) {
-          const box = page.getByRole("checkbox", { name: new RegExp(`^${field}$`) }).last();
-          if (await box.count()) {
-            await box.check({ force: true }).catch(() => {});
-            shown.push(field);
-          } else {
-            const label = page.getByText(new RegExp(`^${field}$`)).last();
-            if (await label.count()) { await label.click(); shown.push(field); }
-          }
-          await page.waitForTimeout(400);
+          // Click the field's label (the checkbox itself ignores synthetic
+          // checks); confirm it really got selected.
+          const label = page.getByText(new RegExp(`^${field}$`)).last();
+          if (!(await label.count())) continue;
+          await label.click();
+          await page.waitForTimeout(500);
+          const box = page.getByRole("checkbox", { name: new RegExp(`^${field}$`) }).first();
+          if (!(await box.count()) || (await box.isChecked())) shown.push(field);
         }
         await settle(1500);
         result.fields = shown;
