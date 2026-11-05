@@ -112,7 +112,7 @@ if [[ -z $a ]]; then
 	:
 elif ((a < 1000)); then
 	echo "  bug A too mild under surge: re-seed with more history, e.g. make seed HISTORY=$((history * 3 / 2))"
-elif ((${P99_A%.*:-0} > 300)); then
+elif pa=${P99_A%.*}; ((${pa:-0} > 300)); then
 	echo "  bug A already hurts at steady load: re-seed with less history, e.g. make seed HISTORY=$((history * 2 / 3))"
 else
 	echo "  bug A is in range"
