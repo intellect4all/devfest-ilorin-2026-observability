@@ -19,6 +19,16 @@ expected_log() {
 	esac
 }
 
+# The Loki fields that carry the numbers, ticked in the Fields sidebar so
+# they show on the line (the same click path the runbook gives).
+log_view() {
+	case $1 in
+	a) echo "slow duplicate check|Log line,entries_scanned,duration_ms" ;;
+	b) echo "slow query|Log line,duration_ms,db_query_text" ;;
+	c) echo "waited for|Log line,wait_ms,held_by_transfer,held_by_step" ;;
+	esac
+}
+
 SLOW_TRANSFERS='{resource.service.name="transfers" && name="POST /transfers"}'
 
 # slowest_trace [seconds]: trace ID of the slowest recent transfer.
@@ -113,14 +123,14 @@ verify_03() {
 	settle 45 "bug C on: WARN lines"
 	local slow
 	slow=$(slowest_trace 40)
-	ev_shot span-to-logs trace "$slow" account_lock.wait logs
+	ev_shot span-to-logs trace "$slow" account_lock.wait logs "$(log_view c)"
 	local shot_ok=$?
 	local logs_png=$EV_PNG
 	EV_CMD="slowest trace with bug C on → span account_lock.wait → Logs for this span"
 	EV_EXPECT="the Loki pane opens with this request's lines, including the WARN"
 	EV_ACTUAL="trace $slow; audit $(jq -c .problems <<<"$EV_AUDIT")"
 	EV_FILES="$logs_png"
-	EV_SHOWS="split view: the trace on the left, Loki on the right filtered to this trace_id, showing 'waited for account lock' with wait_ms, held_by_transfer and held_by_step"
+	EV_SHOWS="split view: the trace on the left with account_lock.wait open; Loki on the right (Related logs), filtered to this trace_id, the WARN 'waited for account lock' line showing wait_ms, held_by_transfer and held_by_step=payout"
 	ev_check "$(pass_if test $shot_ok -eq 0)" "span → logs jump works"
 	bug_off
 	bug_on b
@@ -161,7 +171,7 @@ verify_03() {
 		ev_run "bug-$bug-logs-of-slowest-trace" bash -c "curl -sf -G 'http://127.0.0.1:$LOKI_PORT/loki/api/v1/query_range' --data-urlencode 'query={service_name=~\"transfers|ledger|provider\"} | trace_id=\"$trace\"' --data-urlencode start=$(($(date +%s) - 300))000000000 | jq -c '.data.result[] | {svc: .stream.service_name, level: .stream.detected_level, line: .values[][1], fields: (.stream | del(.service_name, .detected_level, .observed_timestamp, .flags, .scope_name, .telemetry_sdk_language, .telemetry_sdk_name, .telemetry_sdk_version, .severity_number))}'"
 		found=$(grep -c "$want" "$EV_OUT")
 		lines=$EV_OUT
-		ev_shot "bug-$bug-trace-to-logs" trace "$trace" "$(expected_span $bug)" logs
+		ev_shot "bug-$bug-trace-to-logs" trace "$trace" "$(expected_span $bug)" logs "$(log_view $bug)"
 		shot_ok=$?
 		EV_CMD="make bug-$bug-on; slowest trace → Logs for this span"
 		EV_EXPECT="the trace's logs contain '$want' with the numbers that explain it"
@@ -282,7 +292,9 @@ verify_hunt() {
 		widest=$(jq -r '.widest.name' <<<"$analysis")
 		ev_shot "hunt-$bug-2-trace" trace "$trace" "$widest"
 		local tr_png=$EV_PNG
-		ev_shot "hunt-$bug-3-logs" trace "$trace" "$widest" logs
+		local view=""
+		case $widest in duplicate_check) view=$(log_view a) ;; "SELECT entries") view=$(log_view b) ;; account_lock.wait) view=$(log_view c) ;; esac
+		ev_shot "hunt-$bug-3-logs" trace "$trace" "$widest" logs "$view"
 		local logs_png=$EV_PNG
 		logs=$(curl -sf -G "http://127.0.0.1:$LOKI_PORT/loki/api/v1/query_range" \
 			--data-urlencode "query={service_name=~\"transfers|ledger|provider\"} | trace_id=\"$trace\" | detected_level=\"warn\"" \

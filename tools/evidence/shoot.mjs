@@ -2,7 +2,7 @@
 // the pinned Playwright image with host networking.
 //
 //   node shoot.mjs dashboard <uid> <out.png> [from=now-15m]
-//   node shoot.mjs trace     <traceId> <out.png> [spanName] [logs]
+//   node shoot.mjs trace     <traceId> <out.png> [spanName] [logs] [logLineRegex]
 //   node shoot.mjs loki      <logql> <out.png> [from=now-15m] [expandText]
 //   node shoot.mjs page      <url> <out.png> [waitText]
 //   node shoot.mjs text      <file.txt> <out.png> [title]   (terminal output as a PNG)
@@ -22,6 +22,8 @@ const ctx = await browser.newContext({
   timezoneId: "Africa/Lagos",
   locale: "en-GB",
 });
+// Keep the side menu out of the way, as on a projector.
+await ctx.addInitScript(() => localStorage.setItem("grafana.navigation.docked", "false"));
 const page = await ctx.newPage();
 const result = { cmd, args, problems: [] };
 
@@ -85,7 +87,8 @@ try {
     await graphsDrawn();
     await page.screenshot({ path: out });
   } else if (cmd === "trace") {
-    const [traceId, out, spanName, logs] = args;
+    const [traceId, out, spanName, logs, logLine] = args;
+    if (logs) await page.setViewportSize({ width: 1800, height: 1100 });
     await page.goto(
       explore({
         a: {
@@ -97,17 +100,45 @@ try {
       { waitUntil: "domcontentloaded" },
     );
     await settle(2000);
+    await page.getByText(/^Trace ID/).first().waitFor({ timeout: 30000 });
     if (spanName) {
       // Expand the named span to show its attributes.
-      await clickText(new RegExp(`^${spanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+      const re = new RegExp(`^${spanName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+      const row = page.getByText(re).first();
+      await row.scrollIntoViewIfNeeded();
+      await row.click();
       await settle(1000);
       result.expanded = spanName;
     }
     if (logs) {
-      await page.getByRole("button", { name: /Logs for this span/i }).first().click();
+      // Grafana 13 calls "logs for this span" Related logs; it opens Loki in a split pane.
+      await page.getByRole("button", { name: /Related logs|Logs for this span/i }).first().click();
+      await page.getByText(/trace_id/).first().waitFor({ timeout: 30000 }).catch(() => {});
       await settle(3000);
       result.logs = true;
+      if (logLine) {
+        // Show the numbers that explain it next to each line: tick those
+        // fields in the Loki "Fields" sidebar, as the presenter does on stage.
+        await page.getByText(new RegExp(logLine)).last().waitFor({ timeout: 20000 });
+        const shown = [];
+        for (const field of logLine.split("|")[1]?.split(",") || []) {
+          const box = page.getByRole("checkbox", { name: new RegExp(`^${field}$`) }).last();
+          if (await box.count()) {
+            await box.check({ force: true }).catch(() => {});
+            shown.push(field);
+          } else {
+            const label = page.getByText(new RegExp(`^${field}$`)).last();
+            if (await label.count()) { await label.click(); shown.push(field); }
+          }
+          await page.waitForTimeout(400);
+        }
+        await settle(1500);
+        result.fields = shown;
+      }
     }
+    // Frame the trace: its header at the top of the visible area.
+    await page.getByText(/^Trace ID/).first().evaluate((el) => el.closest("section, div").scrollIntoView({ block: "start" }));
+    await page.waitForTimeout(500);
     await audit();
     await page.screenshot({ path: out });
   } else if (cmd === "loki") {
