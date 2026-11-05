@@ -3,7 +3,6 @@ package main
 import (
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -17,24 +16,21 @@ const recentWindow = 24 * time.Hour
 // Keys are compared case-insensitively: mobile SDKs send upper-case UUIDs,
 // some retries arrive lower-cased by a proxy.
 //
-// BUG A lives here. Claim can find a key two ways: through the byKey map
-// (O(1)), or by walking the whole list and normalising every stored key on
-// the way (O(n), one allocation per record). The walk is cheap with a few
-// hundred transfers, which is why it passed review and every test. It holds
-// the mutex for the whole walk, though, so under real traffic every request
-// queues behind every other request's walk.
+// FIX for bug A: the map, keyed by the normalised key, is the only index.
+// A lookup is O(1) however many transfers there are, nothing allocates per
+// stored record, and a background sweep drops keys older than the window
+// (the TTL), so the map cannot grow forever.
 type recentTransfers struct {
 	mu    sync.Mutex
-	list  []*transfer          // oldest first
-	byKey map[string]*transfer // same records, indexed by normalised key
+	byKey map[string]*transfer
 
 	statusMu sync.Mutex // guards Status and ProviderRef of remembered transfers
-
-	linearScan atomic.Bool // bug A toggle
 }
 
 func newRecentTransfers() *recentTransfers {
-	return &recentTransfers{byKey: make(map[string]*transfer)}
+	s := &recentTransfers{byKey: make(map[string]*transfer)}
+	go s.sweepEvery(time.Minute)
+	return s
 }
 
 // Claim returns the transfer already recorded under t.Key, or records t as
@@ -44,24 +40,11 @@ func (s *recentTransfers) Claim(t *transfer) (existing *transfer, scanned int) {
 	defer s.mu.Unlock()
 
 	key := normalizeKey(t.Key)
-	if s.linearScan.Load() {
-		for _, r := range s.list {
-			scanned++
-			if normalizeKey(r.Key) == key {
-				existing = r
-				break
-			}
-		}
-	} else {
-		existing = s.byKey[key]
-		scanned = 1
+	if e, ok := s.byKey[key]; ok && !expired(e, time.Now()) {
+		return s.copyOf(e), 1
 	}
-	if existing != nil {
-		return s.copyOf(existing), scanned
-	}
-
-	s.add(t)
-	return nil, scanned
+	s.byKey[key] = t
+	return nil, 1
 }
 
 // Complete records how an in-flight transfer ended. It needs only statusMu,
@@ -86,20 +69,17 @@ func (s *recentTransfers) Forget(t *transfer) {
 	if key := normalizeKey(t.Key); s.byKey[key] == t {
 		delete(s.byKey, key)
 	}
-	for i := len(s.list) - 1; i >= 0; i-- {
-		if s.list[i] == t {
-			s.list = append(s.list[:i], s.list[i+1:]...)
-			break
-		}
-	}
 }
 
 // Load adds transfers read from the database at start-up.
 func (s *recentTransfers) Load(ts []*transfer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
 	for _, t := range ts {
-		s.add(t)
+		if !expired(t, now) {
+			s.byKey[normalizeKey(t.Key)] = t
+		}
 	}
 }
 
@@ -107,24 +87,27 @@ func (s *recentTransfers) Load(ts []*transfer) {
 func (s *recentTransfers) Len() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.list)
+	return len(s.byKey)
 }
 
-// add records t and forgets transfers older than the window. Callers hold mu.
-func (s *recentTransfers) add(t *transfer) {
-	s.list = append(s.list, t)
-	s.byKey[normalizeKey(t.Key)] = t
-
-	cutoff := time.Now().Add(-recentWindow)
-	n := 0
-	for n < len(s.list) && s.list[n].CreatedAt.Before(cutoff) {
-		delete(s.byKey, normalizeKey(s.list[n].Key))
-		n++
-	}
-	if n > 0 {
-		s.list = s.list[n:]
+// sweep forgets every key older than the window.
+func (s *recentTransfers) sweep(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, t := range s.byKey {
+		if expired(t, now) {
+			delete(s.byKey, k)
+		}
 	}
 }
+
+func (s *recentTransfers) sweepEvery(d time.Duration) {
+	for now := range time.Tick(d) {
+		s.sweep(now)
+	}
+}
+
+func expired(t *transfer, now time.Time) bool { return t.CreatedAt.Before(now.Add(-recentWindow)) }
 
 // normalizeKey makes Idempotency-Key comparison case-insensitive.
 func normalizeKey(k string) string { return strings.ToLower(strings.TrimSpace(k)) }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -27,6 +28,8 @@ type app struct {
 	provider *providerClient
 
 	prefunded map[string]bool // settlement wallets that skip the balance check
+
+	toggledA, toggledC atomic.Bool // what the presenter asked for (no effect here)
 }
 
 func main() {
@@ -87,19 +90,21 @@ func main() {
 	httpx.Serve(":"+httpx.Env("PORT", "8080"), api, ":"+httpx.Env("ADMIN_PORT", "7080"), a.adminMux())
 }
 
-// adminMux serves the presenter's bug toggles:
+// adminMux serves the presenter's bug toggles. On this branch bugs A and C
+// are fixed in the code, so the toggles are remembered and reported but
+// change nothing: that is the point of the "fixes hold" demo.
 //
 //	GET  /admin/bugs            current state
-//	POST /admin/bugs?a=on&c=off bug A: O(n) duplicate check; bug C: lock held across payout
+//	POST /admin/bugs?a=on&c=on  accepted, no effect
 func (a *app) adminMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/bugs", a.bugState)
 	mux.HandleFunc("POST /admin/bugs", func(w http.ResponseWriter, r *http.Request) {
 		if on, ok := httpx.Toggle(r, "a"); ok {
-			a.recent.linearScan.Store(on)
+			a.toggledA.Store(on)
 		}
 		if on, ok := httpx.Toggle(r, "c"); ok {
-			a.locks.holdAcrossPayout.Store(on)
+			a.toggledC.Store(on)
 		}
 		a.bugState(w, r)
 	})
@@ -109,8 +114,9 @@ func (a *app) adminMux() http.Handler {
 
 func (a *app) bugState(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"a":                a.recent.linearScan.Load(),
-		"c":                a.locks.holdAcrossPayout.Load(),
+		"a":                a.toggledA.Load(),
+		"c":                a.toggledC.Load(),
+		"fixed":            "a and c are fixed on this branch; the toggles have no effect",
 		"recent_transfers": a.recent.Len(),
 	})
 }

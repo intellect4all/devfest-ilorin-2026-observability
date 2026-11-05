@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,6 +38,15 @@ var migrations = []string{
 	CREATE INDEX idx_entries_account_id ON entries (account_id)`,
 }
 
+// FIX for bug B. The balance query needs an index on account_id; losing it
+// turned every balance check into a sequential scan of the whole table.
+// This index is part of the schema the code depends on, so the service
+// makes sure it exists every time it starts (a migration that cannot be
+// "already applied" and then lost). It also covers amount, so the balance
+// SUM is answered from the index alone (an index-only scan).
+const ensureBalanceIndex = `CREATE INDEX IF NOT EXISTS idx_entries_account_balance
+	ON entries (account_id) INCLUDE (amount)`
+
 type server struct{ db *pgxpool.Pool }
 
 // slowQuery is when a query is slow enough to be worth a WARN line.
@@ -63,6 +71,9 @@ func main() {
 	}
 	if err := migrate(ctx, db); err != nil {
 		log.Fatalf("migration: %v", err)
+	}
+	if _, err := db.Exec(ctx, ensureBalanceIndex); err != nil {
+		log.Fatalf("ensuring the balance index: %v", err)
 	}
 
 	s := &server{db: db}
@@ -162,10 +173,12 @@ func (s *server) postEntries(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"transfer_id": req.TransferID})
 }
 
-// adminMux serves the presenter's bug toggle:
+// adminMux serves the presenter's bug toggle. On this branch b=on replays
+// the original incident (the bad migration that dropped
+// idx_entries_account_id); the balance query no longer depends on it.
 //
 //	GET  /admin/bugs       current state
-//	POST /admin/bugs?b=on  bug B: drop every index on entries(account_id ...)
+//	POST /admin/bugs?b=on  drop idx_entries_account_id
 //	POST /admin/bugs?b=off put idx_entries_account_id back
 //
 // Bug B lives in the database, so it survives service restarts.
@@ -176,7 +189,7 @@ func (s *server) adminMux() http.Handler {
 		if on, ok := httpx.Toggle(r, "b"); ok {
 			var err error
 			if on {
-				err = s.dropAccountIndexes(r.Context())
+				_, err = s.db.Exec(r.Context(), `DROP INDEX CONCURRENTLY IF EXISTS idx_entries_account_id`)
 			} else {
 				// CONCURRENTLY, so live traffic keeps writing while it builds.
 				_, err = s.db.Exec(r.Context(), `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entries_account_id ON entries (account_id)`)
@@ -192,33 +205,15 @@ func (s *server) adminMux() http.Handler {
 	return mux
 }
 
-// accountIndexes lists the indexes that can serve WHERE account_id = $1.
-const accountIndexes = `SELECT indexname FROM pg_indexes
-	WHERE tablename = 'entries' AND indexdef LIKE '%(account_id%'`
-
-func (s *server) dropAccountIndexes(ctx context.Context) error {
-	rows, err := s.db.Query(ctx, accountIndexes)
-	if err != nil {
-		return err
-	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		if _, err := s.db.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS `+pgx.Identifier{name}.Sanitize()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *server) bugState(w http.ResponseWriter, r *http.Request) {
-	var indexed bool
-	err := s.db.QueryRow(r.Context(), `SELECT EXISTS (`+accountIndexes+`)`).Scan(&indexed)
+	var legacy bool
+	err := s.db.QueryRow(r.Context(),
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_entries_account_id')`).Scan(&legacy)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"b": !indexed})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"b": !legacy, "fixed": "the balance query uses idx_entries_account_balance, ensured at start-up",
+	})
 }

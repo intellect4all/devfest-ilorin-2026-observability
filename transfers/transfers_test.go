@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
@@ -12,43 +11,42 @@ func newTransfer(key string, age time.Duration) *transfer {
 		Status: statusProcessing, CreatedAt: time.Now().Add(-age)}
 }
 
-func TestClaimFindsReplayWithBothLookups(t *testing.T) {
-	for _, linear := range []bool{false, true} {
-		t.Run(fmt.Sprintf("linear=%v", linear), func(t *testing.T) {
-			s := newRecentTransfers()
-			s.linearScan.Store(linear)
-			for i := range 100 {
-				s.Load([]*transfer{newTransfer(fmt.Sprint("k", i), time.Minute)})
-			}
+func TestClaimFindsReplay(t *testing.T) {
+	s := newRecentTransfers()
+	for i := range 100 {
+		s.Load([]*transfer{newTransfer(fmt.Sprint("k", i), time.Minute)})
+	}
+	first := newTransfer("new-key", 0)
+	if prev, _ := s.Claim(first); prev != nil {
+		t.Fatalf("first claim found %v, want nothing", prev.ID)
+	}
+	s.Complete(first, statusCompleted, "PRV-1")
 
-			first := newTransfer("new-key", 0)
-			if prev, _ := s.Claim(first); prev != nil {
-				t.Fatalf("first claim found %v, want nothing", prev.ID)
-			}
-			s.Complete(first, statusCompleted, "PRV-1")
+	prev, scanned := s.Claim(newTransfer("new-key", 0))
+	if prev == nil || prev.ID != first.ID || prev.Status != statusCompleted {
+		t.Fatalf("replay got %+v, want the completed first transfer", prev)
+	}
+	if scanned != 1 {
+		t.Errorf("lookup compared %d records, want 1 (the fix for bug A)", scanned)
+	}
+}
 
-			prev, scanned := s.Claim(newTransfer("new-key", 0))
-			if prev == nil || prev.ID != first.ID || prev.Status != statusCompleted {
-				t.Fatalf("replay got %+v, want the completed first transfer", prev)
-			}
-			if linear && scanned != 101 {
-				t.Errorf("linear scan compared %d records, want 101", scanned)
-			}
-			if !linear && scanned != 1 {
-				t.Errorf("map lookup compared %d records, want 1", scanned)
-			}
-		})
+// The TTL: a sweep forgets keys older than the window.
+func TestSweepForgetsExpiredKeys(t *testing.T) {
+	s := newRecentTransfers()
+	s.Claim(newTransfer("fresh", time.Hour))
+	s.Claim(newTransfer("stale", 23*time.Hour))
+	s.sweep(time.Now().Add(2 * time.Hour)) // two hours later "stale" is 25 h old
+	if got := s.Len(); got != 1 {
+		t.Fatalf("remembered %d keys after the sweep, want 1", got)
 	}
 }
 
 func TestClaimIgnoresKeyCase(t *testing.T) {
-	for _, linear := range []bool{false, true} {
-		s := newRecentTransfers()
-		s.linearScan.Store(linear)
-		s.Claim(newTransfer("8F14E45F-CEEA-467A-9575-0000000000AB", 0))
-		if prev, _ := s.Claim(newTransfer(" 8f14e45f-ceea-467a-9575-0000000000ab", 0)); prev == nil {
-			t.Errorf("linear=%v: lower-cased retry was not recognised", linear)
-		}
+	s := newRecentTransfers()
+	s.Claim(newTransfer("8F14E45F-CEEA-467A-9575-0000000000AB", 0))
+	if prev, _ := s.Claim(newTransfer(" 8f14e45f-ceea-467a-9575-0000000000ab", 0)); prev == nil {
+		t.Error("lower-cased retry was not recognised")
 	}
 }
 
@@ -88,9 +86,9 @@ func TestVelocityLimit(t *testing.T) {
 	}
 }
 
-// With bug C off, a second transfer from the same account must not wait
+// The fix for bug C: a second transfer from the same account never waits
 // for the first one to finish its payout.
-func TestLockIsShortWithoutBugC(t *testing.T) {
+func TestLockNeverSpansPayout(t *testing.T) {
 	l := newAccountLocks(1 << 40)
 	r1, _, _ := l.Reserve("acct-1", "t1", 1)
 	defer r1.Done(false)
@@ -108,52 +106,20 @@ func TestLockIsShortWithoutBugC(t *testing.T) {
 	}
 }
 
-// With bug C on, the second transfer waits until the first calls Done, and
-// learns who held the lock and what it was doing.
-func TestBugCHoldsLockAcrossPayout(t *testing.T) {
-	l := newAccountLocks(1 << 40)
-	l.holdAcrossPayout.Store(true)
-	r1, _, _ := l.Reserve("acct-1", "t1", 1)
-	r1.Step("payout")
-
-	var wg sync.WaitGroup
-	var w lockWait
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var r2 *reservation
-		r2, w, _ = l.Reserve("acct-1", "t2", 1)
-		r2.Done(false)
-	}()
-	time.Sleep(50 * time.Millisecond)
-	r1.Done(false)
-	wg.Wait()
-
-	if w.Waited < 40*time.Millisecond {
-		t.Errorf("waited %s, want about 50ms", w.Waited)
-	}
-	if w.HeldBy != "t1" || w.HeldByStep != "payout" {
-		t.Errorf("held by %q during %q, want t1 during payout", w.HeldBy, w.HeldByStep)
-	}
-}
-
-// BenchmarkClaim shows why bug A only hurts at scale.
+// BenchmarkClaim: with the fix, a lookup costs the same at any size.
 func BenchmarkClaim(b *testing.B) {
 	for _, n := range []int{1_000, 100_000, 300_000} {
-		for _, linear := range []bool{false, true} {
-			b.Run(fmt.Sprintf("n=%d/linear=%v", n, linear), func(b *testing.B) {
-				s := newRecentTransfers()
-				ts := make([]*transfer, n)
-				for i := range ts {
-					ts[i] = newTransfer(fmt.Sprintf("8F14E45F-CEEA-467A-9575-%012X", i), time.Hour)
-				}
-				s.Load(ts)
-				s.linearScan.Store(linear)
-				b.ResetTimer()
-				for i := 0; b.Loop(); i++ {
-					s.Claim(newTransfer(fmt.Sprintf("bench-%d", i), 0))
-				}
-			})
-		}
+		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
+			s := newRecentTransfers()
+			ts := make([]*transfer, n)
+			for i := range ts {
+				ts[i] = newTransfer(fmt.Sprintf("8F14E45F-CEEA-467A-9575-%012X", i), time.Hour)
+			}
+			s.Load(ts)
+			b.ResetTimer()
+			for i := 0; b.Loop(); i++ {
+				s.Claim(newTransfer(fmt.Sprintf("bench-%d", i), 0))
+			}
+		})
 	}
 }
