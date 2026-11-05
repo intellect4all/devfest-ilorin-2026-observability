@@ -28,6 +28,7 @@ fi
 BIN="$(cd "$(dirname "$0")" && pwd)"
 . "$BIN/lib.sh"
 . "$BIN/evidence.sh"
+. "$BIN/verify-checks.sh"
 command -v jq >/dev/null || die "verify needs jq"
 
 ONLY=${ONLY:-"main 01-metrics 02-traces 03-logs 04-alerts hunt solution stage offline"}
@@ -261,8 +262,15 @@ for b in main 01-metrics 02-traces 03-logs 04-alerts hunt solution; do
 	case $b in
 	main) verify_main ;;
 	01-metrics) verify_01 ;;
+	02-traces) verify_02 ;;
+	03-logs) verify_03 ;;
+	04-alerts) verify_04 ;;
+	hunt) verify_hunt ;;
+	solution) verify_solution ;;
 	esac
 done
+want stage && verify_stage
+want offline && verify_offline
 
 make -s load-stop >/dev/null 2>&1
 ev_finish
