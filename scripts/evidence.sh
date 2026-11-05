@@ -27,10 +27,11 @@ ev_section() {
 	info "== $EV_BRANCH"
 }
 
-# ev_path <name.ext>: next numbered file in the current section.
+# ev_path <name.ext>: set EV_PATH to the next numbered file in the section.
+# (A global, not echo: a $(...) subshell would lose the counter.)
 ev_path() {
 	EV_N=$((EV_N + 1))
-	printf '%s/%s/%02d_%s' "$RUN_DIR" "$EV_BRANCH" "$EV_N" "$1"
+	EV_PATH=$(printf '%s/%s/%02d_%s' "$RUN_DIR" "$EV_BRANCH" "$EV_N" "$1")
 }
 
 rel() { echo "${1#"$EVIDENCE_ROOT"/}"; }
@@ -39,7 +40,8 @@ rel() { echo "${1#"$EVIDENCE_ROOT"/}"; }
 ev_run() {
 	local name=$1
 	shift
-	EV_OUT=$(ev_path "$name.txt")
+	ev_path "$name.txt"
+	EV_OUT=$EV_PATH
 	{
 		printf '$ %s\n' "$*"
 		printf '# %s, branch %s @ %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --short HEAD)"
@@ -61,7 +63,8 @@ ev_png() {
 ev_shot() {
 	local name=$1 cmd=$2
 	shift 2
-	EV_PNG=$(ev_path "$name.png")
+	ev_path "$name.png"
+	EV_PNG=$EV_PATH
 	local first=$1
 	shift
 	EV_AUDIT=$(SHOOT_OUT_DIR="$EVIDENCE_ROOT" scripts/shoot.sh "$cmd" "$first" "$EV_PNG" "$@" 2>&1 | tail -1)
