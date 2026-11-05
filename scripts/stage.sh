@@ -25,6 +25,9 @@ APP_SERVICES="$(app_services)"
 # shellcheck disable=SC2086
 dc up -d --no-build --remove-orphans postgres lgtm $APP_SERVICES 2>&1 | grep -vE 'Running|Waiting|Healthy' || true
 wait_apps 30 || die "services did not come back (docker compose logs)"
+# Normally Grafana never stopped. If the lgtm container had to be recreated
+# (for example after make verify, which runs from another folder), wait for it.
+wait_for 90 "Grafana" http_ok "$GRAFANA/api/health" || die "Grafana is not answering (docker compose logs lgtm)"
 grafana_reload || die "Grafana did not reload its provisioning"
 
 t1=$(now)

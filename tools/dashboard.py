@@ -256,7 +256,7 @@ def build(traces=False, alerts=False):
                         "datasource": TEMPO,
                         "refId": "A",
                         "queryType": "traceql",
-                        "query": '{resource.service.name="transfers" && name="POST /transfers"} | duration > 80ms',
+                        "query": '{resource.service.name="transfers" && name="POST /transfers" && duration > 80ms}',
                         "limit": 10,
                         "tableType": "traces",
                     }
