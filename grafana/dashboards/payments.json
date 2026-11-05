@@ -1003,6 +1003,46 @@
         "w": 24,
         "h": 8
       }
+    },
+    {
+      "type": "row",
+      "title": "Alerts",
+      "collapsed": false,
+      "panels": [],
+      "id": 19,
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "alertlist",
+      "title": "Alert rules (symptoms, not causes)",
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "showInactiveAlerts": true,
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "normal": true,
+          "noData": true,
+          "error": true
+        },
+        "sortOrder": 1,
+        "maxItems": 10,
+        "alertInstanceLabelFilter": "",
+        "folder": null
+      },
+      "id": 20,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 5
+      }
     }
   ]
 }

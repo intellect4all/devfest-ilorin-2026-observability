@@ -95,6 +95,18 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # Formats Grafana's alert webhooks for phones and publishes them to ntfy.
+  # Deliberately not instrumented: it is plumbing, not part of the system.
+  alertrelay:
+    <<: *app
+    command: ["/app/alertrelay"]
+    environment:
+      NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
+      NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      ALERT_CLICK_URL: ${ALERT_CLICK_URL:-}
+    ports: ["127.0.0.1:${RELAY_PORT:-8090}:8090"]
+
   # Steady traffic: `make load` starts it, `make load-stop` stops it.
   loadgen:
     <<: *app

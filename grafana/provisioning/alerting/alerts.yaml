@@ -1,0 +1,93 @@
+# Alerting as code: two symptom-based rules on the transfers API, a webhook
+# contact point that goes through alertrelay (which formats the message for
+# phones) to ntfy, and a notification policy tuned for demo speed.
+#
+# Alert on symptoms users feel (slow, failing), not on causes (CPU, a missing
+# index, a lock): the causes are what the dashboard, traces and logs are for.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: ntfy
+    receivers:
+      - uid: ntfy-relay
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://alertrelay:8090/grafana
+          httpMethod: POST
+
+policies:
+  - orgId: 1
+    receiver: ntfy
+    group_by: [alertname]
+    # Demo timings. In production group_wait 30s and group_interval 5m are saner.
+    group_wait: 5s
+    group_interval: 10s
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: transfers-symptoms
+    folder: DevFest
+    interval: 10s
+    rules:
+      - uid: transfers-p99-slo
+        title: Transfers p99 latency above 300 ms
+        condition: B
+        for: 20s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: page
+          service: transfers
+        annotations:
+          summary: 'p99 latency of POST /transfers is {{ humanizeDuration $values.A.Value }} (SLO 300ms).'
+          description: Customers are waiting. Open "Payments — RED & USE", then follow an exemplar to the trace.
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 60, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="transfers"}[30s])))
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.3] }
+
+      - uid: transfers-5xx-rate
+        title: Transfers 5xx above 5%
+        condition: B
+        for: 20s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: page
+          service: transfers
+        annotations:
+          summary: '{{ printf "%.1f" $values.A.Value }}% of POST /transfers requests are failing with 5xx.'
+          description: Customers are seeing errors. Check "Transfers by outcome" and the provider panels.
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 60, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * (sum(rate(http_server_request_duration_seconds_count{job="transfers",http_response_status_code=~"5.."}[30s])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="transfers"}[30s]))
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
