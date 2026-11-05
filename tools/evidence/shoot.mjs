@@ -88,7 +88,7 @@ try {
     await page.screenshot({ path: out });
   } else if (cmd === "trace") {
     const [traceId, out, spanName, logs, logLine] = args;
-    if (logs) await page.setViewportSize({ width: 1800, height: 1100 });
+    await page.setViewportSize(logs ? { width: 1800, height: 1100 } : { width: 1600, height: 1100 });
     await page.goto(
       explore({
         a: {

@@ -107,7 +107,9 @@ verify_02() {
 		trace_file=$EV_OUT
 		want=$(expected_span $bug)
 		got=$(jq -r '.widest.name' <<<"$analysis")
-		ev_shot "bug-$bug-trace" trace "$slow" "$got"
+		# Expand the span only when it carries something to read (B: db.query.text);
+		# otherwise the whole waterfall, short post_entries and payout included.
+		ev_shot "bug-$bug-trace" trace "$slow" "$([[ $bug == b ]] && echo "$got")"
 		shot_ok=$?
 		local extra=""
 		[[ $bug == a ]] && extra="; duplicate_check self/total ms: $(jq -r '[.spans[] | select(.name=="duplicate_check")][0] | "\(.selfMs)/\(.durMs)"' <<<"$analysis")"
