@@ -28,6 +28,8 @@ type recentTransfers struct {
 	list  []*transfer          // oldest first
 	byKey map[string]*transfer // same records, indexed by normalised key
 
+	statusMu sync.Mutex // guards Status and ProviderRef of remembered transfers
+
 	linearScan atomic.Bool // bug A toggle
 }
 
@@ -55,18 +57,25 @@ func (s *recentTransfers) Claim(t *transfer) (existing *transfer, scanned int) {
 		scanned = 1
 	}
 	if existing != nil {
-		return existing.snapshot(), scanned
+		return s.copyOf(existing), scanned
 	}
 
 	s.add(t)
 	return nil, scanned
 }
 
-// Complete records how an in-flight transfer ended.
+// Complete records how an in-flight transfer ended. It needs only statusMu,
+// so finishing a transfer never waits behind a duplicate check.
 func (s *recentTransfers) Complete(t *transfer, status, providerRef string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
 	t.Status, t.ProviderRef = status, providerRef
+}
+
+func (s *recentTransfers) copyOf(t *transfer) *transfer {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	return t.snapshot()
 }
 
 // Forget drops an in-flight claim whose transfer never started (for
