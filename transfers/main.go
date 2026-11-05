@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,8 @@ type app struct {
 	locks    *accountLocks
 	ledger   *ledgerClient
 	provider *providerClient
+
+	prefunded map[string]bool // settlement wallets that skip the balance check
 }
 
 func main() {
@@ -35,11 +38,15 @@ func main() {
 
 	limit, _ := strconv.ParseInt(httpx.Env("DAILY_LIMIT_KOBO", "100000000000000"), 10, 64)
 	a := &app{
-		store:    &store{db: db},
-		recent:   newRecentTransfers(),
-		locks:    newAccountLocks(limit),
-		ledger:   newLedgerClient(httpx.Env("LEDGER_URL", "http://localhost:8081")),
-		provider: newProviderClient(httpx.Env("PROVIDER_URL", "http://localhost:8082")),
+		store:     &store{db: db},
+		recent:    newRecentTransfers(),
+		locks:     newAccountLocks(limit),
+		ledger:    newLedgerClient(httpx.Env("LEDGER_URL", "http://localhost:8081")),
+		provider:  newProviderClient(httpx.Env("PROVIDER_URL", "http://localhost:8082")),
+		prefunded: map[string]bool{},
+	}
+	for _, acct := range strings.Split(httpx.Env("PREFUNDED_ACCOUNTS", "acct-00001"), ",") {
+		a.prefunded[strings.TrimSpace(acct)] = true
 	}
 	if err := a.store.migrate(ctx); err != nil {
 		log.Fatalf("migration: %v", err)

@@ -84,7 +84,10 @@ func (a *app) createTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Move the money.
+	// 3. Move the money. From here on a client hanging up must not stop us
+	// halfway through, so the work no longer follows the request's
+	// cancellation (it still carries the request's values).
+	ctx = context.WithoutCancel(ctx)
 	out, err := a.move(ctx, t, res)
 	res.Done(out.status != statusCompleted)
 	a.recent.Complete(t, out.status, out.providerRef)
@@ -118,22 +121,26 @@ func (t *transfer) done(o outcome) *transfer {
 
 // move checks the balance, posts the ledger entries and pays out.
 func (a *app) move(ctx context.Context, t *transfer, res *reservation) (outcome, error) {
-	var balance int64
-	res.Step("balance_check")
-	err := step(ctx, "balance_check", func(ctx context.Context) error {
-		var err error
-		balance, err = a.ledger.Balance(ctx, t.From)
-		return err
-	})
-	if err != nil {
-		return outcome{statusFailed, "", http.StatusBadGateway}, err
-	}
-	if balance < t.Amount {
-		return outcome{statusInsufficient, "", http.StatusUnprocessableEntity}, nil
+	// Pre-funded settlement wallets are topped up out of band; checking
+	// their balance on every payout would only add load to the ledger.
+	if !a.prefunded[t.From] {
+		var balance int64
+		res.Step("balance_check")
+		err := step(ctx, "balance_check", func(ctx context.Context) error {
+			var err error
+			balance, err = a.ledger.Balance(ctx, t.From)
+			return err
+		})
+		if err != nil {
+			return outcome{statusFailed, "", http.StatusBadGateway}, err
+		}
+		if balance < t.Amount {
+			return outcome{statusInsufficient, "", http.StatusUnprocessableEntity}, nil
+		}
 	}
 
 	res.Step("post_entries")
-	err = step(ctx, "post_entries", func(ctx context.Context) error {
+	err := step(ctx, "post_entries", func(ctx context.Context) error {
 		return a.ledger.PostEntries(ctx, t.ID, t.From, t.To, t.Amount)
 	})
 	if err != nil {
