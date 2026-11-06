@@ -220,6 +220,21 @@ verify_03() {
 		c) EV_SHOWS="trace plus its logs: 'waited for account lock' with wait_ms, held_by_transfer and held_by_step=payout" ;;
 		esac
 		ev_check "$(pass_if test "$found" -gt 0 -a $shot_ok -eq 0)" "bug $(upper $bug): the trace's logs say why ($want)"
+		if [[ $bug == c ]]; then
+			# The runbook says the holder is usually in its payout: measure it.
+			ev_run bug-c-held-by-step curl -sf -G "http://127.0.0.1:$LOKI_PORT/loki/api/v1/query" \
+				--data-urlencode 'query=sum by (held_by_step) (count_over_time({service_name="transfers"} |= "waited for account lock" [2m]))'
+			local steps total payout
+			steps=$(sed -n '/^{/p' "$EV_OUT" | jq -r '.data.result[] | "\(.metric.held_by_step)=\(.value[1])"' | tr '\n' ' ')
+			total=$(sed -n '/^{/p' "$EV_OUT" | jq '[.data.result[].value[1] | tonumber] | add // 0')
+			payout=$(sed -n '/^{/p' "$EV_OUT" | jq '[.data.result[] | select(.metric.held_by_step == "payout") | .value[1] | tonumber] | add // 0')
+			EV_CMD="Loki: count 'waited for account lock' lines by held_by_step, last 2 minutes of bug C"
+			EV_EXPECT="most lines name payout (the runbook script says so), at least half"
+			EV_ACTUAL="$steps(payout $payout of $total)"
+			EV_FILES="$EV_OUT"
+			EV_SHOWS="numbers only"
+			ev_check "$(pass_if awk -v p="$payout" -v t="$total" 'BEGIN { exit !(t > 0 && p / t >= 0.5) }')" "bug C: held_by_step is mostly payout"
+		fi
 		bug_off
 		settle 30 "recovery"
 	done

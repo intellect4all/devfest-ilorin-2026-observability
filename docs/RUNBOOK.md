@@ -144,7 +144,7 @@ Short, speakable lines. Don't read them; know them.
 
 - *(Run `make bug-c-on`, then wait 20 s, then open a slow trace and the `account_lock.wait` span.)* "Same trace as before. Now: *Related logs*."
 - *(Tick `wait_ms`, `held_by_transfer`, `held_by_step`, then `Log line`.)* "This request waited **9,800 milliseconds** for the account lock. The lock was held by **this other transfer**, and that transfer was in the middle of its **payout**: a network call to an external provider."
-  - *(About 1 line in 5 says `held_by_step=post_entries` instead: the holder had not reached its payout yet. If you get one, say "this time it was still writing to the ledger; open the next one", and go back to the trace and pick the next slow one. Measured on n2: payout is about 55 ms of a 65–70 ms hold.)*
+  - *(Occasionally a line says `held_by_step=post_entries` instead: the holder had not reached its payout yet. If you get one, say "this time it was still writing to the ledger; open the next one", and go back to the trace and pick the next slow one. In the traces, payout is about 50–55 ms of the hold; `make verify` measures the share, see `evidence/SUMMARY.md`.)*
 - "Somebody is holding a lock across a network call. Every payout from the settlement wallet waits for the previous one to come back from the provider. That's the bug."
 - **Hand-off:** "Metrics told us something was wrong. Traces told us where. Logs told us why. **Each one answered a question the others couldn't.**"
 - *(Run `make bug-c-off`.)* "And you'd never have found that with `print`. The line exists only because a trace ID connects it to the slow request."
@@ -290,7 +290,7 @@ Short, speakable lines. Don't read them; know them.
 - **Bug C:**
   - Metrics: p99 climbs and goroutines climb; errors, CPU and pool stay flat.
   - Trace: `account_lock.wait` is the whole request.
-  - Log: `waited for account lock`, `held_by_step=payout` (sometimes `post_entries`: the lock is held for the whole transfer).
+  - Log: `waited for account lock`, `held_by_step=payout` (occasionally `post_entries`: the lock is held for the whole transfer).
   - Why: a lock held across a network call.
 
 ---

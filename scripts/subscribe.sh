@@ -29,11 +29,11 @@ link="$server/$NTFY_TOPIC"
 qr() { # qr <url> [png]: run /app/qr from this branch's image, else go run
 	local img="devfest26/app:$STAGE"
 	# Images built before qr existed don't have it; qr with no args prints usage.
-	if docker run --rm --entrypoint /app/qr "$img" 2>&1 | grep -q usage; then
+	if docker run --rm --pull=never --entrypoint /app/qr "$img" 2>&1 | grep -q usage; then
 		if [[ -n ${2:-} ]]; then
-			docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT":/out --entrypoint /app/qr "$img" "$1" "/out/$2"
+			docker run --rm --pull=never --user "$(id -u):$(id -g)" -v "$ROOT":/out --entrypoint /app/qr "$img" "$1" "/out/$2"
 		else
-			docker run --rm --entrypoint /app/qr "$img" "$1"
+			docker run --rm --pull=never --entrypoint /app/qr "$img" "$1"
 		fi
 	elif command -v go >/dev/null; then
 		go run ./qr "$@"
