@@ -41,7 +41,7 @@ up: ## Start the stack for this branch
 	@scripts/up.sh
 
 down: ## Stop the stack (keeps data)
-	@$(DC) --profile load --profile offline down
+	@$(DC) --profile load --profile offline down --remove-orphans
 
 reset: ## Stop the stack and delete its data (this project's volumes only)
 	@$(DC) --profile load --profile offline down -v --remove-orphans
