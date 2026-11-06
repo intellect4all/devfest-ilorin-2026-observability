@@ -350,7 +350,11 @@ verify_hunt() {
 		EV_FILES="$dash $tr_png $logs_png $EV_OUT"
 		EV_SHOWS="1 dashboard with the symptom, 2 the slowest trace with the widest span open, 3 that span's logs with the WARN line that names the cause"
 		ev_check "$(pass_if test "Bug $(upper "$guess")" = "$answer")" "hunt walkthrough finds bug $(upper $bug)"
-		settle 30 "recovery"
+		# Isolate the rounds: bug A's surge leaves a backlog that would still
+		# be in the next round's 1-minute p99 (seen in run 5).
+		docker compose restart transfers >/dev/null 2>&1
+		wait_apps 60 >/dev/null
+		settle 70 "recovery: the rate windows refill with healthy traffic"
 	done
 	make -s load-stop >/dev/null
 }
