@@ -225,9 +225,9 @@ verify_03() {
 			ev_run bug-c-held-by-step curl -sf -G "http://127.0.0.1:$LOKI_PORT/loki/api/v1/query" \
 				--data-urlencode 'query=sum by (held_by_step) (count_over_time({service_name="transfers"} |= "waited for account lock" [2m]))'
 			local steps total payout
-			steps=$(sed -n '/^{/p' "$EV_OUT" | jq -r '.data.result[] | "\(.metric.held_by_step)=\(.value[1])"' | tr '\n' ' ')
-			total=$(sed -n '/^{/p' "$EV_OUT" | jq '[.data.result[].value[1] | tonumber] | add // 0')
-			payout=$(sed -n '/^{/p' "$EV_OUT" | jq '[.data.result[] | select(.metric.held_by_step == "payout") | .value[1] | tonumber] | add // 0')
+			steps=$(sed -n '/^{/{s/# exit [0-9]*$//;p;}' "$EV_OUT" | jq -r '.data.result[] | "\(.metric.held_by_step)=\(.value[1])"' | tr '\n' ' ')
+			total=$(sed -n '/^{/{s/# exit [0-9]*$//;p;}' "$EV_OUT" | jq '[.data.result[].value[1] | tonumber] | add // 0')
+			payout=$(sed -n '/^{/{s/# exit [0-9]*$//;p;}' "$EV_OUT" | jq '[.data.result[] | select(.metric.held_by_step == "payout") | .value[1] | tonumber] | add // 0')
 			EV_CMD="Loki: count 'waited for account lock' lines by held_by_step, last 2 minutes of bug C"
 			EV_EXPECT="most lines name payout (the runbook script says so), at least half"
 			EV_ACTUAL="$steps(payout $payout of $total)"
