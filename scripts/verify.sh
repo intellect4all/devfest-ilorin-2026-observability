@@ -213,8 +213,8 @@ verify_01() {
 		local shot_ok=$?
 		case $bug in
 		c)
-			want="p99 > 1000 ms and goroutines at least 2x healthy (lock queue), 5xx flat"
-			st=$(pass_if awk -v p="$(num p99 "$during")" -v g="$(num goroutines "$during")" -v g0="$(num goroutines "$healthy")" -v e="$(num 5xx "$during")" 'BEGIN { exit !(p > 1000 && g >= 2 * g0 && e < 1) }')
+			want="p99 > 1000 ms and goroutines at least 20 above healthy (lock queue), 5xx flat"
+			st=$(pass_if awk -v p="$(num p99 "$during")" -v g="$(num goroutines "$during")" -v g0="$(num goroutines "$healthy")" -v e="$(num 5xx "$during")" 'BEGIN { exit !(p > 1000 && g >= g0 + 20 && e < 1) }')
 			EV_SHOWS="bug C on: p99 tile red and climbing, goroutines rising in steps, throughput flat, 5xx still 0"
 			;;
 		b)
