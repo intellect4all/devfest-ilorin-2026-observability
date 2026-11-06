@@ -411,7 +411,7 @@ verify_stage() {
 		awk -v s="$secs" 'BEGIN { exit !(s < 15) }' || st=FAIL
 		EV_CMD="make stage STAGE=$b (load running)"
 		EV_EXPECT="switch in under 15 s, no compile, lands on a working dashboard"
-		EV_ACTUAL="switched in ${secs}s; $(tail -2 "$out" | head -1)"
+		EV_ACTUAL="switched in ${secs}s; $(grep -v "^make\[" "$out" | tail -1)"
 		EV_FILES="$out $EV_PNG"
 		EV_SHOWS="$([[ $b == main ]] && echo "make check all ticks after switching back to main" || echo "Payments dashboard on $b, panels drawing, data continuing across the switch")"
 		ev_check "$st" "stage switch to $b"
