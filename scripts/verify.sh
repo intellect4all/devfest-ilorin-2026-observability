@@ -275,5 +275,6 @@ want offline && verify_offline
 make -s load-stop >/dev/null 2>&1
 ev_finish
 status=$?
+chmod -R u+w "$SCRATCH" 2>/dev/null # Go leaves module caches read-only
 rm -rf "$SCRATCH"
 exit $status

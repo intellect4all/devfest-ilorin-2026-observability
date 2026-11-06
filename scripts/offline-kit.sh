@@ -28,11 +28,11 @@ trap 'rm -rf "$tmp"; git worktree prune' EXIT
 mkdir -p "$KIT/gomodcache"
 for b in $BRANCHES; do
 	git worktree add -q --detach "$tmp/$b" "$b"
-	docker run --rm -v "$tmp/$b":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod "$GO_IMAGE" go mod download ||
+	docker run --rm -v "$tmp/$b":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod -e GOFLAGS=-modcacherw "$GO_IMAGE" go mod download ||
 		die "go mod download on $b failed"
 	git worktree remove --force "$tmp/$b"
 done
-docker run --rm -v "$ROOT":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod -e GOFLAGS=-mod=mod "$GO_IMAGE" go mod vendor ||
+docker run --rm -v "$ROOT":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod -e GOFLAGS="-mod=mod -modcacherw" "$GO_IMAGE" go mod vendor ||
 	die "go mod vendor failed"
 tar -czf "$KIT/vendor.tar.gz" vendor && rm -rf vendor
 
