@@ -65,8 +65,11 @@ accounts run the check (the settlement wallet is pre-funded), so about 10% of tr
 **Fix (on `solution`).** The ledger ensures, on every start, an index the balance query depends on:
 `idx_entries_account_balance ON entries (account_id) INCLUDE (amount)`. It is a covering index, so the
 `SUM` is answered by an *index-only scan*. Because the service re-checks the index at every start, a
-single lost migration cannot silently bring the sequential scan back. On `solution`, `make bug-b-on`
-still drops the original index, and latency does not move.
+single lost migration cannot silently bring the sequential scan back. The index is built
+`CONCURRENTLY` in the background, after the ledger starts serving: a blocking build on 7M rows took
+about 7 s, during which the ledger refused connections and 65 transfers failed (seen in `make verify`
+on the switch to `solution`). On `solution`, `make bug-b-on` still drops the original index, and
+latency does not move.
 
 **Calibration.** With bug B on, p99 grows with the row count. 7M rows gave p99 about 630 ms on n2
 (client side, median of 5 s windows over 120 s). Re-tune with `make calibrate` and `make seed ROWS=…`.

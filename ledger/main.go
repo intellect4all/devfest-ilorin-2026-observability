@@ -44,8 +44,32 @@ var migrations = []string{
 // makes sure it exists every time it starts (a migration that cannot be
 // "already applied" and then lost). It also covers amount, so the balance
 // SUM is answered from the index alone (an index-only scan).
-const ensureBalanceIndex = `CREATE INDEX IF NOT EXISTS idx_entries_account_balance
+//
+// It is built CONCURRENTLY, in the background, after the service is already
+// serving: on 7M rows a plain CREATE INDEX takes seconds, and a ledger that
+// refuses connections while it builds fails every transfer in that window.
+const ensureBalanceIndex = `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entries_account_balance
 	ON entries (account_id) INCLUDE (amount)`
+
+// ensureIndex builds the balance index if it is missing. An interrupted
+// concurrent build leaves an INVALID index that IF NOT EXISTS would skip
+// forever, so drop that first.
+func ensureIndex(ctx context.Context, db *pgxpool.Pool) {
+	var invalid bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE c.relname = 'idx_entries_account_balance' AND NOT i.indisvalid)`).Scan(&invalid)
+	if err == nil && invalid {
+		_, err = db.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS idx_entries_account_balance`)
+	}
+	if err == nil {
+		start := time.Now()
+		if _, err = db.Exec(ctx, ensureBalanceIndex); err == nil {
+			slog.Info("balance index ready", "index", "idx_entries_account_balance", "duration_ms", time.Since(start).Milliseconds())
+			return
+		}
+	}
+	slog.Error("ensuring the balance index failed: balance checks will be slow", "err", err)
+}
 
 type server struct{ db *pgxpool.Pool }
 
@@ -72,9 +96,7 @@ func main() {
 	if err := migrate(ctx, db); err != nil {
 		log.Fatalf("migration: %v", err)
 	}
-	if _, err := db.Exec(ctx, ensureBalanceIndex); err != nil {
-		log.Fatalf("ensuring the balance index: %v", err)
-	}
+	go ensureIndex(ctx, db)
 
 	s := &server{db: db}
 	mux := http.NewServeMux()
