@@ -111,5 +111,5 @@ grafana/                       datasources, dashboard, alert rules: provisioned 
 scripts/                       make targets: check, stage, prebuild, calibrate, verify, offline kit
 tools/                         dashboard generator, Playwright evidence tooling
 docs/                          PLAN, RUNBOOK (speaker), BUGS, DECISIONS
-evidence/                      screenshots and logs proving every demo works (SUMMARY.md)
+evidence/                      (not in git) make verify writes screenshots and logs here (SUMMARY.md)
 ```

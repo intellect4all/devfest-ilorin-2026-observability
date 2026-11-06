@@ -185,9 +185,12 @@ data; Grafana re-reads its provisioning through the reload API. Measured on n2: 
 it goes, so checking out a branch that changes `verify.sh` mid-run would corrupt the run. The scratch
 clone keeps branch switches away from the working tree.
 
-**Evidence is written on the test host and committed at the end.** During development the evidence
-lives outside the repo (`~/devfest26-evidence` on n2). This rule came from a mistake: an early
-`git add -A` swept a local copy of the evidence into the `solution` commit, and I had to remove it.
+**Evidence is written on the test host and kept out of git.** During development the evidence lives
+outside the repo (`~/devfest26-evidence` on n2). An early `git add -A` swept a local copy into the
+`solution` commit, and I had to remove it. The plan was to commit it at the end, but the evidence
+contains the ntfy topic (check output, ntfy screenshots, the subscribe QR code), and the repo is
+public. The presenter chose to gitignore `evidence/` and keep it on the laptop, rather than burn the
+topic or redact evidence. `make verify` regenerates it on any machine.
 
 **Screenshots use a tall viewport, not `fullPage`.** A full-page capture resizes the page, Grafana
 re-lays out, and the canvases are blank at the moment of capture. The first evidence run looked fine

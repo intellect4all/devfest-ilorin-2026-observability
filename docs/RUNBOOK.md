@@ -8,7 +8,8 @@ commands. Bug C, the lock held across a network call, is **the incident**: you s
 once through each signal, and a fourth time when it pages the room.
 
 Screenshots of what every step should look like are in `evidence/latest/` (the newest verification run).
-Every check and its numbers are in `evidence/SUMMARY.md`.
+Every check and its numbers are in `evidence/SUMMARY.md`. Both live on your laptop only: `evidence/` is
+not in git, because it contains your ntfy topic. Copy it from the machine that ran `make verify`.
 
 ---
 

@@ -18,7 +18,7 @@ On the `solution` branch all three are fixed in the code. The toggles still answ
 change nothing.
 
 The numbers below were measured on n2 under `make load` (20 req/s, 90% from the settlement wallet).
-The latest verification run is in [`evidence/SUMMARY.md`](../evidence/SUMMARY.md).
+Running `make verify` writes the full results to `evidence/SUMMARY.md` (kept out of git).
 
 ---
 
