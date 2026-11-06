@@ -26,13 +26,16 @@ info "3/5 Go modules for every branch"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"; git worktree prune' EXIT
 mkdir -p "$KIT/gomodcache"
+# Run Go as the calling user: root-owned vendor/ and module files cannot be
+# deleted afterwards on Linux. -modcacherw keeps the cache deletable too.
+go_run() { docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/gocache -v "$KIT/gomodcache":/go/pkg/mod "$@"; }
 for b in $BRANCHES; do
 	git worktree add -q --detach "$tmp/$b" "$b"
-	docker run --rm -v "$tmp/$b":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod -e GOFLAGS=-modcacherw "$GO_IMAGE" go mod download ||
+	go_run -v "$tmp/$b":/src -w /src -e GOFLAGS=-modcacherw "$GO_IMAGE" go mod download ||
 		die "go mod download on $b failed"
 	git worktree remove --force "$tmp/$b"
 done
-docker run --rm -v "$ROOT":/src -w /src -v "$KIT/gomodcache":/go/pkg/mod -e GOFLAGS="-mod=mod -modcacherw" "$GO_IMAGE" go mod vendor ||
+go_run -v "$ROOT":/src -w /src -e GOFLAGS="-mod=mod -modcacherw" "$GO_IMAGE" go mod vendor ||
 	die "go mod vendor failed"
 tar -czf "$KIT/vendor.tar.gz" vendor && rm -rf vendor
 
