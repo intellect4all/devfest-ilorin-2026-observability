@@ -252,6 +252,13 @@ wait_ntfy() {
 	return 1
 }
 
+# qr_decode <png>: the text in the QR code in an image, or nothing.
+qr_decode() {
+	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT/tools/evidence":/w:ro \
+		-v "$(dirname "$1")":/img:ro mcr.microsoft.com/playwright:v1.63.0-noble \
+		node /w/qrcheck.mjs "/img/$(basename "$1")" 2>/dev/null | jq -r '.text // empty'
+}
+
 verify_04() {
 	load_on
 	settle 45 "healthy traffic"
@@ -267,6 +274,24 @@ verify_04() {
 	EV_FILES="$EV_OUT $EV_PNG"
 	EV_SHOWS="ntfy web app on the topic with the 'Test alert from make alert-test' notification"
 	ev_check "$(pass_if test -n "$m")" "make alert-test reaches ntfy"
+
+	# The audience subscribes from a QR code: it must decode to the topic.
+	local want_url="${NTFY_URL%/}/$NTFY_TOPIC" qr_png term_txt dec_png dec_term
+	rm -f subscribe-qr.png
+	ev_run subscribe make subscribe PNG=1
+	term_txt=$EV_OUT
+	ev_png "$term_txt" "make subscribe (what the projector shows)"
+	ev_path subscribe-qr.png
+	qr_png=$EV_PATH
+	cp subscribe-qr.png "$qr_png" 2>/dev/null
+	dec_png=$(qr_decode "$qr_png")
+	dec_term=$(qr_decode "$EV_PNG")
+	EV_CMD="make subscribe PNG=1, then decode both QR codes with jsQR"
+	EV_EXPECT="the slide PNG and the terminal QR both decode to $want_url, and the topic is printed"
+	EV_ACTUAL="slide PNG decodes to '${dec_png:-nothing}'; terminal QR decodes to '${dec_term:-nothing}'; topic printed: $(grep -c "$(sed 's/./& /g' <<<"$NTFY_TOPIC" | sed 's/ $//')" "$term_txt")x"
+	EV_FILES="$term_txt $EV_PNG $qr_png"
+	EV_SHOWS="the projector view: install the ntfy app, tap +, the topic in big letters, a QR code"
+	ev_check "$(pass_if test "$dec_png" = "$want_url" -a "$dec_term" = "$want_url")" "make subscribe QR code scans to the topic"
 
 	t0=$(date +%s)
 	bug_on c

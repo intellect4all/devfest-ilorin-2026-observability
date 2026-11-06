@@ -87,6 +87,24 @@ is plumbing, and its traces would only clutter Tempo. Grafana also has templated
 the relay is easier to test (`alertrelay/main_test.go`) and works identically against ntfy.sh and the
 offline container.
 
+**The audience subscribes with the ntfy app, from a QR code, at the start.** The presenter asked
+for everyone in the room to get the alert on their own phone.
+- Spelling out a 26-character topic letter by letter took 30–45 s of a 3-minute demo, and typos lose
+  people. `make subscribe` prints the topic in big letters and a QR code, and `PNG=1` writes the QR
+  for slides 1 and 17. People subscribe during the opening poll; Demo 4 only waits for stragglers.
+- The QR opens `https://ntfy.sh/<topic>`. The ntfy Android app takes `ntfy://` deep links, but iOS
+  documents none, and a phone camera does nothing with an unknown scheme. The web page works on any
+  phone, with or without the app; the app is what buzzes, so the topic is printed to type in.
+- The QR is drawn by `qr`, a 30-line binary in every image (`github.com/skip2/go-qrcode`, from 2020),
+  so it needs no compiler and no network on the day.
+- An ntfy.sh topic is public: anyone who reads it off the projector can post to it. That is
+  acceptable for a 40-minute talk, so the topic should be short to type rather than unguessable.
+- Because `hunt` already has the alert rules, phones buzz during the hunt too. The runbook uses
+  that as the "symptom, not cause" cue instead of hiding it.
+- Offline (Plan B), iPhones get no pushes: ntfy's iOS delivery goes through Apple's servers, and the
+  ntfy docs say a self-hosted server without its internet upstream can take hours. Android works.
+  The runbook tells iPhone users to keep the page open in Safari.
+
 **Alert timings are tuned for the stage.** Rules are evaluated every 10 s with `for: 20s`. The policy
 uses `group_wait: 5s` and `group_interval: 10s`; Grafana's defaults (30 s and 5 min) would delay the
 resolve notification by minutes. Measured on n2: about 35 s from bug-on to the phone, and about 50 s
@@ -190,4 +208,4 @@ there is settled by regenerating it.
 - **No ledger-side overdraft constraint.** The pre-funded rule fails closed, and the demo never
   exhausts balances. A real ledger would enforce it in the database.
 - **No authentication on the local ntfy server.** It only runs on the presenter's hotspot during the
-  talk. The public ntfy.sh topic is unguessable and lives in `.env`.
+  talk.

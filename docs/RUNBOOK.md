@@ -20,14 +20,14 @@ Every check and its numbers are in `evidence/SUMMARY.md`.
   `<repo>` and run the README quick start." Under 10 minutes on good internet.
 - [ ] On **your MacBook** (not the homelab: it's x86, your Mac is ARM):
   ```bash
-  cp .env.example .env            # set NTFY_TOPIC to something unguessable, e.g. devfest-ilorin-<6 random chars>
+  cp .env.example .env            # NTFY_TOPIC goes on the projector: short to type, but unique, e.g. devfest-ilorin-26x
   make up && make seed && make check
   make prebuild                   # images for every branch, about 5 min
   make calibrate                  # about 5 min, see "Calibration" below; re-seed if it says so
   make offline-kit                # offline-kit/ (about 2.5 GB): copy it to two USB sticks
   ```
 - [ ] Timed rehearsal, with a stopwatch, using the run of show below. Note where you run long.
-- [ ] Put the ntfy topic on a sticky note. You'll spell it out on stage.
+- [ ] `make subscribe PNG=1` writes `subscribe-qr.png`. Put it, with the topic in big letters, on **slide 1** and **slide 17**. Scan it with an iPhone and an Android phone: it must open the topic page.
 
 ### The day before
 
@@ -99,7 +99,7 @@ Short, speakable lines. Don't read them; know them.
 - "Quick poll, hands up. Who has heard the word *observability* and could explain it to a friend?"
 - "Keep them up if you debug with `console.log` or `print`." *(Smile.)* "Me too. That's where we start today."
 - "Last one: who has been paged, or called at night, because something broke in production?"
-- "By the end of this talk, your phone is going to get paged. By my laptop. Install the **ntfy** app now if you want to play along; I'll give you the topic later."
+- "By the end of this talk, your phone is going to get paged. By my laptop. Install the **ntfy** app now, tap **plus**, and subscribe to the topic on this slide. Or scan the code." *(Leave slide 1 up for the poll: that is their 2 minutes.)*
 
 ### Slides 2–5
 
@@ -161,10 +161,8 @@ Short, speakable lines. Don't read them; know them.
 
 ### Demo 4: the ntfy moment (12:35)
 
-- "Phones out. Open the ntfy app. Tap **plus**, subscribe to a topic." Speak slowly, then spell it:
-  > "The server is **ntfy dot sh**, that's n-t-f-y dot s-h. The topic is: **d-e-v-f-e-s-t, dash, i-l-o-r-i-n, dash** …" *(read the rest from your sticky note, one character at a time)*
-- Also type it big in the terminal: `make subscribe` shows the server and topic.
-- "Thumbs up when you've subscribed." *(Wait 30–45 s. Then run `make alert-test`.)* "Did that buzz? That's a test."
+- *(Run `make subscribe`: the topic, big, and a QR code.)* "Phones out. Not subscribed yet? Scan this, or open the ntfy app, tap **plus** and type the topic." *(Wait about 15 s. Most of the room did it at 12:00.)*
+- *(Run `make alert-test`.)* "Did that buzz? That's a test."
 - *(Run `make bug-c-on`.)* "Now the real thing. Same bug. Nobody's watching the dashboard. About thirty seconds…"
 - *(Phones buzz.)* "*Transfers p99 latency above 300 milliseconds*, with the value and the time. Not a wall of JSON: something you can act on at 3 a.m."
 - *(Run `make bug-c-off`.)* "And when it's fixed, it tells you that too." *(About 50 s later.)* "Resolved."
@@ -227,13 +225,14 @@ Short, speakable lines. Don't read them; know them.
   3. `make reveal` at the end (it also turns the bug off and stops the rush).
 - **Click path:** let the audience drive. The answer paths are in the hunt guide below.
 - **Should look like:** `evidence/latest/hunt/*_hunt-*`, a three-screenshot trail per bug.
+- **Phones buzz during the hunt.** `hunt` already has the alert rules, so the audience gets *Transfers p99 latency above 300 ms* about 35 s after `make mystery`. Use it: "Your phone knows something is wrong. It doesn't know why. That's your job."
 - **Reset:** `make reveal`, then `make bugs-off`.
 
 ### Demo 4: alerts (`04-alerts`)
 
 - **Starting state:** `make stage STAGE=04-alerts` (switch during slide 16), load running, bugs off, your phone subscribed, ntfy web tab open.
 - **Commands:**
-  1. `make subscribe` (topic on screen).
+  1. `make subscribe` (topic and QR code on screen).
   2. `make alert-test`.
   3. `make bug-c-on`, then wait about 35 s for the buzz.
   4. `make bug-c-off`, then wait about 50 s for *Resolved*.
@@ -251,7 +250,7 @@ Short, speakable lines. Don't read them; know them.
 | **Grafana shows "No data"** | Is traffic on? `make load`. Wait 15 s (panels use 30-second windows). Still nothing: `make check`; a ✗ on prometheus or collector means `docker compose restart lgtm` (about 20 s, data is kept). Meanwhile, show the evidence screenshot for that demo. |
 | **A demo shows nothing after `make bug-c-on`** | The toggle reset on a stage switch. Run `make bugs` and turn it on again. |
 | **ntfy doesn't deliver** | Show the ntfy web tab on the projector: it is the same message. Then check: `make alert-test`. If ntfy.sh is unreachable, go to Plan B. |
-| **Wi-Fi is down** | Nothing in the demos needs the internet except ntfy.sh. Plan B: <br>1. phone hotspot on; <br>2. in `.env`, set `NTFY_URL=http://ntfy`; <br>3. run `make ntfy-local` and note the IP it prints; <br>4. run `make stage STAGE=04-alerts` again (the relay picks up the new URL); <br>5. phones on the hotspot subscribe to `http://<that ip>:2586/<topic>` (ntfy app → *Use another server*). |
+| **Wi-Fi is down** | Nothing in the demos needs the internet except ntfy.sh. Plan B: <br>1. phone hotspot on; <br>2. in `.env`, set `NTFY_URL=http://ntfy`; <br>3. run `make ntfy-local` and note the IP it prints; <br>4. run `make stage STAGE=04-alerts` again (the relay picks up the new URL); <br>5. run `make subscribe`: it shows the laptop's address and a QR code for phones on the hotspot (ntfy app → **+** → *Use another server*). <br>**iPhones** only get ntfy pushes through the internet, so offline they won't buzz: tell iPhone users to scan the QR and keep the page open in Safari. Android phones buzz as normal. |
 | **Projector fails** | Keep talking from the slides on a second device, or turn the laptop around for the front rows. The demos are pictures in `evidence/latest/`; describe them. |
 | **Docker itself is broken** | Restart Docker Desktop (about 60 s), then `make up`. If images are gone: `docker load -i offline-kit/images.tar` (about 2 min) from the USB stick. |
 | **Running 5 minutes over** | See the cut list under the run of show. |

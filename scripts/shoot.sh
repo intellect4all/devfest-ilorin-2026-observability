@@ -6,8 +6,9 @@
 . "$(dirname "$0")/lib.sh"
 PW_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble
 out_dir=${SHOOT_OUT_DIR:-$ROOT}
-if [[ ! -d tools/evidence/node_modules/playwright ]]; then
-	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT/tools/evidence":/w -w /w "$PW_IMAGE" npm install --no-audit --no-fund -s >/dev/null ||
+# Reinstall from the lockfile when any dependency is missing (jsqr came later).
+if [[ ! -d tools/evidence/node_modules/playwright || ! -d tools/evidence/node_modules/jsqr ]]; then
+	docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT/tools/evidence":/w -w /w "$PW_IMAGE" npm ci --no-audit --no-fund -s >/dev/null ||
 		die "npm install in tools/evidence failed"
 fi
 docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp \

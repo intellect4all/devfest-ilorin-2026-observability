@@ -81,13 +81,15 @@ To switch between branches in seconds, without compiling, build every branch's i
 ## Alerts on your phone (04-alerts)
 
 1. Install the **ntfy** app (Android or iOS) and subscribe to your `NTFY_TOPIC` on `https://ntfy.sh`.
+   `make subscribe` shows the topic and a QR code.
 2. Run `make stage STAGE=04-alerts`, or `git checkout 04-alerts && make up`.
 3. Run `make alert-test` and your phone buzzes. Then `make bug-c-on`: about 35 seconds later the
    *Transfers p99 latency above 300 ms* alert arrives. After `make bugs-off`, the resolve follows.
 
 There's no internet at the venue? `make ntfy-local` runs an ntfy server on your laptop. Set
-`NTFY_URL=http://ntfy` in `.env`, then subscribe phones on the same Wi-Fi or hotspot to
-`http://<your-laptop-ip>:2586/<topic>`.
+`NTFY_URL=http://ntfy` in `.env`, then run `make subscribe`: it shows phones on the same Wi-Fi or
+hotspot your laptop's address and a QR code. Without internet, iPhones don't get pushes; keep the
+page open in Safari instead.
 
 ## Troubleshooting
 
