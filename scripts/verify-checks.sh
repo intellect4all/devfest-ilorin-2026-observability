@@ -445,6 +445,13 @@ verify_stage() {
 		grep -qE 'Building|go build|\[build' "$out" && st=FAIL
 		all+="$b ${secs}s, "
 		settle 25 "metrics flowing on $b"
+		# The audience is watching: a switch must not fail transfers. (main
+		# has no metrics; the window covers the switch and the settle.)
+		local failed="n/a"
+		if [[ $b != main ]]; then
+			failed=$(prom 'round(sum(increase(http_server_request_duration_seconds_count{job="transfers",http_response_status_code=~"5.."}[45s])) or vector(0))')
+			[[ ${failed:-0} -le 2 ]] || st=FAIL
+		fi
 		if [[ $b == main ]]; then
 			ev_run "stage-$b-check" make check
 			ev_png "$EV_OUT" "make check after make stage STAGE=main"
@@ -454,8 +461,8 @@ verify_stage() {
 		fi
 		awk -v s="$secs" 'BEGIN { exit !(s < 15) }' || st=FAIL
 		EV_CMD="make stage STAGE=$b (load running)"
-		EV_EXPECT="switch in under 15 s, no compile, lands on a working dashboard"
-		EV_ACTUAL="switched in ${secs}s; $(grep -v "^make\[" "$out" | tail -1)"
+		EV_EXPECT="switch in under 15 s, no compile, at most 2 failed transfers around the switch, lands on a working dashboard"
+		EV_ACTUAL="switched in ${secs}s; 5xx in the 45 s around it: $failed; $(grep -v "^make\[" "$out" | tail -1)"
 		EV_FILES="$out $EV_PNG"
 		EV_SHOWS="$([[ $b == main ]] && echo "make check all ticks after switching back to main" || echo "Payments dashboard on $b, panels drawing, data continuing across the switch")"
 		ev_check "$st" "stage switch to $b"
