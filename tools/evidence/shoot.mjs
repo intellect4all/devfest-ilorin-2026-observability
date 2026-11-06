@@ -51,23 +51,28 @@ async function audit() {
 }
 
 // graphsDrawn flags time-series panels whose canvas is still blank, the
-// failure that "No data" text alone does not catch.
+// failure that "No data" text alone does not catch. Stat-tile sparklines
+// (under 100 px tall) are skipped: their value is checked as text, and a
+// series that is flat at 0 (5xx on a healthy run) draws nothing on the edge.
 async function graphsDrawn() {
   const blank = await page.evaluate(() => {
-    let n = 0;
+    const out = [];
     for (const c of document.querySelectorAll("canvas")) {
-      if (c.width < 50 || c.height < 50) continue;
+      if (c.width < 50 || c.height < 100) continue;
       const ctx = c.getContext("2d");
       if (!ctx) continue;
       const d = ctx.getImageData(0, 0, c.width, c.height).data;
-      let painted = 0;
+      let painted = false;
       // every pixel: a 1-2 px line in a narrow band slips between sparse samples
-      for (let i = 3; i < d.length && !painted; i += 4) if (d[i] > 0) painted++;
-      if (painted === 0) n++;
+      for (let i = 3; i < d.length && !painted; i += 4) if (d[i] > 0) painted = true;
+      if (!painted) {
+        const t = c.closest("[data-viz-panel-key], section")?.querySelector("h2, [data-testid*='title']")?.textContent;
+        out.push(t || `${c.width}x${c.height}`);
+      }
     }
-    return n;
+    return out;
   });
-  if (blank) result.problems.push(`${blank} blank graph canvas(es)`);
+  if (blank.length) result.problems.push(`${blank.length} blank graph canvas(es): ${blank.join(", ")}`);
 }
 
 async function clickText(re, opts = {}) {
