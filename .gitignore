@@ -8,3 +8,4 @@ vendor/
 *.tar
 /.hunt/
 /bin/
+subscribe-qr.png

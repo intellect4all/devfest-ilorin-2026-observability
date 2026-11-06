@@ -111,12 +111,11 @@ provider-normal: ## Provider healthy again
 alert-test: ## Send a sample alert through the relay to ntfy
 	@scripts/alert-test.sh
 
-subscribe: ## Show the ntfy server and topic big, for the audience to subscribe
-	@printf '\n\n   Open the ntfy app  →  +  →  subscribe to:\n\n'
-	@printf '   server   %s\n\n   topic    %s\n\n\n' "$${NTFY_URL:-https://ntfy.sh}" "$${NTFY_TOPIC:?set NTFY_TOPIC in .env}" | sed 's/./& /g'
+subscribe: ## Put the ntfy topic and a QR code on screen for the audience (PNG=1 also writes subscribe-qr.png)
+	@scripts/subscribe.sh
 
 ntfy-local: ## Offline Plan B: start a local ntfy server phones can reach on the hotspot
-	@$(DC) --profile offline up -d ntfy && echo "ntfy on http://$$(ipconfig getifaddr en0 2>/dev/null || hostname -I | cut -d' ' -f1):$${NTFY_LOCAL_PORT:-2586} - set NTFY_URL=http://ntfy in .env and make up"
+	@$(DC) --profile offline up -d ntfy && ip=$$(scripts/lan-ip.sh); echo "ntfy on http://$${ip:-<laptop-ip: System Settings, Wi-Fi, Details>}:$${NTFY_LOCAL_PORT:-2586} (open it on your phone) - set NTFY_URL=http://ntfy in .env and make up"
 
 ##@ Stage
 stage: ## Switch to a prebuilt branch without compiling: make stage STAGE=02-traces
