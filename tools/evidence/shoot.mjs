@@ -61,7 +61,8 @@ async function graphsDrawn() {
       if (!ctx) continue;
       const d = ctx.getImageData(0, 0, c.width, c.height).data;
       let painted = 0;
-      for (let i = 3; i < d.length; i += 4 * 97) if (d[i] > 0) painted++;
+      // every pixel: a 1-2 px line in a narrow band slips between sparse samples
+      for (let i = 3; i < d.length && !painted; i += 4) if (d[i] > 0) painted++;
       if (painted === 0) n++;
     }
     return n;
