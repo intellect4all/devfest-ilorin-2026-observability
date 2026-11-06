@@ -51,24 +51,42 @@ var migrations = []string{
 const ensureBalanceIndex = `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entries_account_balance
 	ON entries (account_id) INCLUDE (amount)`
 
-// ensureIndex builds the balance index if it is missing. An interrupted
-// concurrent build leaves an INVALID index that IF NOT EXISTS would skip
-// forever, so drop that first.
+// ensureIndex builds the balance index if it is missing, retrying until it
+// succeeds: a concurrent build can lose a deadlock to another one on the same
+// table (bug B's toggle rebuilds the legacy index the same way), and a failed
+// build leaves an INVALID index that IF NOT EXISTS would then skip forever,
+// so that is dropped before each try.
 func ensureIndex(ctx context.Context, db *pgxpool.Pool) {
-	var invalid bool
-	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-		WHERE c.relname = 'idx_entries_account_balance' AND NOT i.indisvalid)`).Scan(&invalid)
-	if err == nil && invalid {
-		_, err = db.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS idx_entries_account_balance`)
-	}
-	if err == nil {
-		start := time.Now()
-		if _, err = db.Exec(ctx, ensureBalanceIndex); err == nil {
-			slog.Info("balance index ready", "index", "idx_entries_account_balance", "duration_ms", time.Since(start).Milliseconds())
+	start := time.Now()
+	for attempt := 1; ; attempt++ {
+		err := buildIndex(ctx, db)
+		if err == nil {
+			slog.Info("balance index ready", "index", "idx_entries_account_balance",
+				"attempts", attempt, "duration_ms", time.Since(start).Milliseconds())
 			return
 		}
+		slog.Warn("balance index not built yet, retrying", "attempt", attempt, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
 	}
-	slog.Error("ensuring the balance index failed: balance checks will be slow", "err", err)
+}
+
+func buildIndex(ctx context.Context, db *pgxpool.Pool) error {
+	var invalid bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE c.relname = 'idx_entries_account_balance' AND NOT i.indisvalid)`).Scan(&invalid); err != nil {
+		return err
+	}
+	if invalid {
+		if _, err := db.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS idx_entries_account_balance`); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec(ctx, ensureBalanceIndex)
+	return err
 }
 
 type server struct{ db *pgxpool.Pool }
