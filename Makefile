@@ -111,7 +111,7 @@ provider-normal: ## Provider healthy again
 alert-test: ## Send a sample alert through the relay to ntfy
 	@scripts/alert-test.sh
 
-subscribe: ## Put the ntfy topic and a QR code on screen for the audience (PNG=1 also writes subscribe-qr.png)
+subscribe: ## Put the ntfy topic and a QR code on screen for the audience (writes and opens subscribe-qr.png)
 	@scripts/subscribe.sh
 
 ntfy-local: ## Offline Plan B: start a local ntfy server phones can reach on the hotspot

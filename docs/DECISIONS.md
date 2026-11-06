@@ -90,8 +90,9 @@ offline container.
 **The audience subscribes with the ntfy app, from a QR code, at the start.** The presenter asked
 for everyone in the room to get the alert on their own phone.
 - Spelling out a 26-character topic letter by letter took 30–45 s of a 3-minute demo, and typos lose
-  people. `make subscribe` prints the topic in big letters and a QR code, and `PNG=1` writes the QR
-  for slides 1 and 17. People subscribe during the opening poll; Demo 4 only waits for stragglers.
+  people. `make subscribe` prints the topic in big letters and a QR code, writes `subscribe-qr.png`
+  for slides 1 and 17, and opens it in Preview. The PNG is what gets projected: in our screenshot
+  renderer, line spacing broke the terminal QR into an unscannable grid, while the PNG decodes. People subscribe during the opening poll; Demo 4 only waits for stragglers.
 - The QR opens `https://ntfy.sh/<topic>`. The ntfy Android app takes `ntfy://` deep links, but iOS
   documents none, and a phone camera does nothing with an unknown scheme. The web page works on any
   phone, with or without the app; the app is what buzzes, so the topic is printed to type in.

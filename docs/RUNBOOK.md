@@ -27,7 +27,7 @@ Every check and its numbers are in `evidence/SUMMARY.md`.
   make offline-kit                # offline-kit/ (about 2.5 GB): copy it to two USB sticks
   ```
 - [ ] Timed rehearsal, with a stopwatch, using the run of show below. Note where you run long.
-- [ ] `make subscribe PNG=1` writes `subscribe-qr.png`. Put it, with the topic in big letters, on **slide 1** and **slide 17**. Scan it with an iPhone and an Android phone: it must open the topic page.
+- [ ] `make subscribe` writes `subscribe-qr.png` (and opens it in Preview). Put it, with the topic in big letters, on **slide 1** and **slide 17**. Scan it with an iPhone and an Android phone: it must open the topic page.
 
 ### The day before
 
@@ -161,7 +161,7 @@ Short, speakable lines. Don't read them; know them.
 
 ### Demo 4: the ntfy moment (12:35)
 
-- *(Run `make subscribe`: the topic, big, and a QR code.)* "Phones out. Not subscribed yet? Scan this, or open the ntfy app, tap **plus** and type the topic." *(Wait about 15 s. Most of the room did it at 12:00.)*
+- *(Run `make subscribe`: the topic big in the terminal, and the QR code full size in Preview. Point phones at Preview, not the terminal QR.)* "Phones out. Not subscribed yet? Scan this, or open the ntfy app, tap **plus** and type the topic." *(Wait about 15 s. Most of the room did it at 12:00.)*
 - *(Run `make alert-test`.)* "Did that buzz? That's a test."
 - *(Run `make bug-c-on`.)* "Now the real thing. Same bug. Nobody's watching the dashboard. About thirty seconds…"
 - *(Phones buzz.)* "*Transfers p99 latency above 300 milliseconds*, with the value and the time. Not a wall of JSON: something you can act on at 3 a.m."
