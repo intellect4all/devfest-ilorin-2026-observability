@@ -2,6 +2,10 @@
 
 Demo repository for the DevFest Ilorin 2026 workshop by Abdul-Jemeel Odewole.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/intellect4all/devfest-ilorin-2026-observability/blob/main/colab/devfest_observability.ipynb)
+**No Docker? Follow along in your browser:** the Colab notebook runs the whole stack, Grafana included, on Google's free
+machine. Open it, then run the cells in order. Setup takes 5 to 7 minutes.
+
 A small payment system in Go, three services and Postgres, with three bugs you can switch on and
 off. Each branch adds one signal, so you can watch the same incident through metrics (*is something
 wrong?*), then traces (*where?*), then logs (*why?*).
@@ -111,5 +115,6 @@ grafana/                       datasources, dashboard, alert rules: provisioned 
 scripts/                       make targets: check, stage, prebuild, calibrate, verify, offline kit
 tools/                         dashboard generator, Playwright evidence tooling
 docs/                          PLAN, RUNBOOK (speaker), BUGS, DECISIONS
+colab/                         the Colab notebook and the helper it uses (no Docker needed)
 evidence/                      (not in git) make verify writes screenshots and logs here (SUMMARY.md)
 ```
