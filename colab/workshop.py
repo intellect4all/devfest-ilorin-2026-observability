@@ -488,8 +488,13 @@ def _get(url: str) -> str:
         return "?"
 
 
-def _post(url: str) -> str:
-    status, body = http("POST", url, timeout=5)
+# Bug B on/off drops or rebuilds an index on the entries table (CREATE INDEX
+# CONCURRENTLY over millions of rows), which takes well over 5 s on Colab.
+LEDGER_ADMIN_TIMEOUT = 300
+
+
+def _post(url: str, timeout: float = 5) -> str:
+    status, body = http("POST", url, timeout=timeout)
     if status != 200:
         raise RuntimeError(f"POST {url}: HTTP {status} {body}")
     return body.strip()
@@ -549,14 +554,18 @@ def bug(name: str, on: bool = True) -> None:
     """bug("c") turns bug C on, bug("c", False) turns it off."""
     name = name.lower()
     url = {"a": T_ADMIN, "b": L_ADMIN, "c": T_ADMIN}[name]
-    _post(f"{url}?{name}={'on' if on else 'off'}")
+    if name == "b" and not on:
+        say("putting the index back (CREATE INDEX CONCURRENTLY; can take a minute on Colab)…")
+    _post(f"{url}?{name}={'on' if on else 'off'}", timeout=LEDGER_ADMIN_TIMEOUT if name == "b" else 5)
     _changed()
     say(f"bug {name.upper()} {'on' if on else 'off'}")
 
 
 def bugs_off() -> None:
     _post(f"{T_ADMIN}?a=off&c=off")
-    _post(f"{L_ADMIN}?b=off")
+    if _bugs_state().get("b"):
+        say("putting the index back (CREATE INDEX CONCURRENTLY; can take a minute on Colab)…")
+    _post(f"{L_ADMIN}?b=off", timeout=LEDGER_ADMIN_TIMEOUT)
     _post(f"{P_ADMIN}?error_rate=0&timeout_rate=0")
     stop("surge")
     _changed()
@@ -869,7 +878,7 @@ def mystery(which: str | None = None) -> None:
     if not running("loadgen"):
         load()
     which = which or random.choice("abc")
-    _post(f"{T_ADMIN if which in 'ac' else L_ADMIN}?{which}=on")
+    _post(f"{T_ADMIN if which in 'ac' else L_ADMIN}?{which}=on", timeout=LEDGER_ADMIN_TIMEOUT if which == "b" else 5)
     if which == "a":
         surge(SURGE_RATE, 900)  # bug A only shows under traffic
     _state["hunt"] = {"bug": which, "started": time.time(), "hints": 0}
