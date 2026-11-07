@@ -725,6 +725,7 @@ def trace(trace_id: str | None = None, minutes: float = 2, draw: bool = True, wa
     total = max((s["start"] + s["ms"] * 1e6 for s in spans)) - t0
     say(f"trace {trace_id}: {total / 1e6:.1f} ms, {len(spans)} spans, services {sorted({s['service'] for s in spans})}")
     say(f"most time of its own: '{widest['name']}' in {widest['service']}, {widest['self_ms']:.1f} ms")
+    _trace_link(trace_id)
     if draw:
         import matplotlib.pyplot as plt
         depth = {}
@@ -745,6 +746,20 @@ def trace(trace_id: str | None = None, minutes: float = 2, draw: bool = True, wa
         fig.tight_layout()
         plt.show()
     return {"traceID": trace_id, "widest": widest["name"], "spans": spans}
+
+
+def _trace_link(trace_id: str) -> None:
+    """A link that opens this exact trace in Grafana's Explore."""
+    panes = {"a": {"datasource": "tempo", "range": {"from": "now-30m", "to": "now"},
+                   "queries": [{"refId": "A", "datasource": {"type": "tempo", "uid": "tempo"},
+                                "queryType": "traceql", "limit": 20, "query": trace_id}]}}
+    url = (_state.get("grafana_url", GRAFANA + "/").rstrip("/") + "/explore?schemaVersion=1&panes="
+           + urllib.parse.quote(json.dumps(panes, separators=(",", ":"))))
+    try:
+        from IPython.display import HTML, display
+        display(HTML(f'<p>Open this trace in Grafana: <a href="{url}" target="_blank">{trace_id}</a></p>'))
+    except ImportError:
+        say(f"Grafana: {url}")
 
 
 def logs(trace_id: str, minutes: int = 10) -> list[dict]:
